@@ -3,11 +3,12 @@
  */
 package io.modelcontextprotocol.spec
 
-import io.modelcontextprotocol.util.Assert
 import io.modelcontextprotocol.spec.McpSchema.JSONRPCResponse
-import reactor.core.publisher.SynchronousSink
-import com.fasterxml.jackson.core._
+import io.modelcontextprotocol.util.Assert
+import com.fasterxml.jackson.core.*
 import com.fasterxml.jackson.core.`type`.TypeReference
+import reactor.core.publisher.SynchronousSink
+
 import java.time.Duration
 import java.util
 import java.util.UUID
@@ -17,7 +18,7 @@ import scala.jdk.FunctionConverters.*
 //type.TypeReference
 
 
-import org.slf4j.{Logger, LoggerFactory}
+import org.slf4j.LoggerFactory
 import reactor.core.Disposable
 import reactor.core.publisher.{Mono, MonoSink}
 
@@ -234,14 +235,18 @@ class DefaultMcpSession(/** Duration to wait for request responses before timing
    */
   def handleIncomingRequest(request: McpSchema.JSONRPCRequest):Mono[McpSchema.JSONRPCResponse] =
     Mono.defer(() => {
-      val handler = this.requestHandlers.get(request.method)
+      type HandlerType = AnyRef //todo declare type HandlerType = to really type but unknow ?
+      val handler: DefaultMcpSession.RequestHandler[HandlerType] = this.requestHandlers.get(request.method).asInstanceOf[DefaultMcpSession.RequestHandler[HandlerType]] // requestHandlers.get(request.method)
       if (handler == null) {
         val error = DefaultMcpSession.getMethodNotFoundError(request.method)
         return Mono.just(new McpSchema.JSONRPCResponse(McpSchema.JSONRPC_VERSION, request.id, null,
           JSONRPCResponse.JSONRPCError(McpSchema.ErrorCodes.METHOD_NOT_FOUND, error.message, error.data)))
       }
-      handler.handle(request.params).map((result:java.util.function.Function[_,McpSchema.JSONRPCResponse]) =>
-          new McpSchema.JSONRPCResponse(McpSchema.JSONRPC_VERSION, request.id, result, null)).
+
+      def handlerMapFunc = (result: HandlerType) =>
+        new McpSchema.JSONRPCResponse(McpSchema.JSONRPC_VERSION, request.id, result, null)
+
+      handler.handle(request.params).map(handlerMapFunc.asJavaFunction).
         onErrorResume((error: Throwable) =>
           Mono.just(new McpSchema.JSONRPCResponse(McpSchema.JSONRPC_VERSION, request.id, null, JSONRPCResponse.JSONRPCError(McpSchema.ErrorCodes.INTERNAL_ERROR, error.getMessage, null)))) // TODO: add error message
 

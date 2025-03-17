@@ -6,7 +6,7 @@ package io.modelcontextprotocol.server
 import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
 import io.modelcontextprotocol.spec.DefaultMcpSession.RequestHandler
-import java.util.concurrent.ConcurrentHashMap
+
 import java.time.Duration
 import java.util
 import java.util.Optional
@@ -155,8 +155,8 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
    * @return Mono that completes when clients have been notified of the change
    */
   def removeTool(toolName: String): Mono[Void] = {
-    if (toolName == null) return Mono.error(new McpError("Tool name must not be null"))
-    if (this.serverCapabilities.tools == null) return Mono.error(new McpError("Server must be configured with tool capabilities"))
+    if (toolName == null) return Mono.error(McpError("Tool name must not be null"))
+    if (this.serverCapabilities.tools == null) return Mono.error(McpError("Server must be configured with tool capabilities"))
     Mono.defer(() => {
         val removed = this.tools.removeIf((toolRegistration: McpServerFeatures.AsyncToolRegistration) => toolRegistration.tool.name == toolName)
         if (removed) {
@@ -164,7 +164,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
           if (this.serverCapabilities.tools.listChanged) return notifyToolsListChanged
           return Mono.empty
         }
-        Mono.error(new McpError("Tool with name '" + toolName + "' not found"))
+      Mono.error(McpError("Tool with name '" + toolName + "' not found"))
     })
   }
 
@@ -211,24 +211,23 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_ROOTS_LIST_CHANGED, asyncRootsListChangedNotificationHandler(rootsChangeConsumers))
   this.mcpSession = new DefaultMcpSession(Duration.ofSeconds(10), transport, requestHandlers, notificationHandlers)
 
+  def rootIsEmpty: util.List[Root] => Mono[Void] = (roots: util.List[McpSchema.Root]) => Mono.fromRunnable(() => McpAsyncServer.logger.warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots))
 
-  if (Utils.isEmpty(rootsChangeConsumers)) 
-    rootsChangeConsumers = util.List.of(
-      (roots: util.List[McpSchema.Root]) => 
-        Mono.fromRunnable(() => 
-          McpAsyncServer.logger.
-            warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots)))
+
+  if (Utils.isEmpty(rootsChangeConsumers)) then rootsChangeConsumers = util.List.of(rootIsEmpty.asJavaFunction)
+  //      (roots: util.List[McpSchema.Root]) => Mono.fromRunnable(() => McpAsyncServer.logger.warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots))
+  //    )
 
   /**
    * The MCP session implementation that manages bidirectional JSON-RPC communication
    * between clients and servers.
    */
   def addPrompt(promptRegistration: McpServerFeatures.AsyncPromptRegistration): Mono[Void] = {
-    if (promptRegistration == null) return Mono.error(new McpError("Prompt registration must not be null"))
-    if (this.serverCapabilities.prompts == null) return Mono.error(new McpError("Server must be configured with prompt capabilities"))
+    if (promptRegistration == null) return Mono.error(McpError("Prompt registration must not be null"))
+    if (this.serverCapabilities.prompts == null) return Mono.error(McpError("Server must be configured with prompt capabilities"))
     Mono.defer(() => {
       val registration = this.prompts.putIfAbsent(promptRegistration.prompt.name, promptRegistration)
-      if (registration != null) return Mono.error(new McpError("Prompt with name '" + promptRegistration.prompt.name + "' already exists"))
+      if (registration != null) return Mono.error(McpError("Prompt with name '" + promptRegistration.prompt.name + "' already exists"))
       McpAsyncServer.logger.debug("Added prompt handler: {}", promptRegistration.prompt.name)
       // Servers that declared the listChanged capability SHOULD send a
       // notification,
@@ -240,8 +239,8 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   }
 
   def removePrompt(promptName: String): Mono[Void] = {
-    if (promptName == null) return Mono.error(new McpError("Prompt name must not be null"))
-    if (this.serverCapabilities.prompts == null) return Mono.error(new McpError("Server must be configured with prompt capabilities"))
+    if (promptName == null) return Mono.error(McpError("Prompt name must not be null"))
+    if (this.serverCapabilities.prompts == null) return Mono.error(McpError("Server must be configured with prompt capabilities"))
     Mono.defer(() => {
       val removed = this.prompts.remove(promptName)
       if (removed != null) {
@@ -251,7 +250,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
         if (this.serverCapabilities.prompts.listChanged) return this.notifyPromptsListChanged
         return Mono.empty
       }
-      Mono.error(new McpError("Prompt with name '" + promptName + "' not found"))
+      Mono.error(McpError("Prompt with name '" + promptName + "' not found"))
     })
   }
 
@@ -261,11 +260,10 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
       val promptRequest = transport.unmarshalFrom(params, new TypeReference[McpSchema.GetPromptRequest]() {})
       // Implement prompt retrieval logic here
       val registration = this.prompts.get(promptRequest.name)
-      val error = Mono.error(new McpError("Prompt not found: " + promptRequest.name))
-      if (registration == null) 
-        return error
-      else 
-        registration.promptHandler.apply(promptRequest)
+      val error = Mono.error(McpError("Prompt not found: " + promptRequest.name))
+      //      if (registration == null) //todo  handle error
+      //        return error
+      registration.promptHandler.apply(promptRequest)
     }
 
   def notifyPromptsListChanged: Mono[Void] = this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_PROMPTS_LIST_CHANGED, null)
@@ -276,9 +274,15 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
       // McpSchema.PaginatedRequest request = transport.unmarshalFrom(params,
       // new TypeReference<McpSchema.PaginatedRequest>() {
       // });
-      import scala.jdk.CollectionConverters._
-      this.prompts.values.asScala.map(ele => McpServerFeatures.AsyncPromptRegistration.fromSync(ele))
-      val promptList:util.List[McpSchema.Prompt] = this.prompts.values.stream.map(McpServerFeatures.AsyncPromptRegistration.prompt).toList
+      import scala.jdk.CollectionConverters.*
+      def promptRegToPrompt(reg: McpServerFeatures.AsyncPromptRegistration): McpSchema.Prompt = {
+        reg.prompt
+      }
+
+      val promptList: util.List[McpSchema.Prompt] = this.prompts.values.stream.map(reg => promptRegToPrompt(reg)).toList
+
+      //      this.prompts.values.asScala.map( ( ele: McpServerFeatures.SyncPromptRegistration) => McpServerFeatures.AsyncPromptRegistration.fromSync(ele))
+      //      val promptList:util.List[McpSchema.Prompt] = this.prompts.values.stream.map(McpServerFeatures.AsyncPromptRegistration.prompt).toList
       Mono.just(McpSchema.ListPromptsResult(promptList, null))
     }  
   // ---------------------------------------
@@ -318,13 +322,13 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   // Tool Management
   // ---------------------------------------
   def addTool(toolRegistration: McpServerFeatures.AsyncToolRegistration): Mono[Void] = {
-    if (toolRegistration == null) return Mono.error(new McpError("Tool registration must not be null"))
-    if (toolRegistration.tool == null) return Mono.error(new McpError("Tool must not be null"))
-    if (toolRegistration.call == null) return Mono.error(new McpError("Tool call handler must not be null"))
-    if (this.serverCapabilities.tools == null) return Mono.error(new McpError("Server must be configured with tool capabilities"))
+    if (toolRegistration == null) return Mono.error(McpError("Tool registration must not be null"))
+    if (toolRegistration.tool == null) return Mono.error(McpError("Tool must not be null"))
+    if (toolRegistration.call == null) return Mono.error(McpError("Tool call handler must not be null"))
+    if (this.serverCapabilities.tools == null) return Mono.error(McpError("Server must be configured with tool capabilities"))
     Mono.defer(() => {
         // Check for duplicate tool names
-        if (this.tools.stream.anyMatch((th: McpServerFeatures.AsyncToolRegistration) => th.tool.name == toolRegistration.tool.name)) return Mono.error(new McpError("Tool with name '" + toolRegistration.tool.name + "' already exists"))
+      if (this.tools.stream.anyMatch((th: McpServerFeatures.AsyncToolRegistration) => th.tool.name == toolRegistration.tool.name)) return Mono.error(McpError("Tool with name '" + toolRegistration.tool.name + "' already exists"))
         this.tools.add(toolRegistration)
         McpAsyncServer.logger.debug("Added tool handler: {}", toolRegistration.tool.name)
         if (this.serverCapabilities.tools.listChanged) 
@@ -342,7 +346,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   def notifyToolsListChanged: Mono[Void] = this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_TOOLS_LIST_CHANGED, null)
 
   def toolsListRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ListToolsResult]= (params: AnyRef) => {
-    val tools :util.List[McpSchema.Tool]= this.tools.stream.map(McpServerFeatures.AsyncToolRegistration..tool).toList
+    val tools: util.List[McpSchema.Tool] = this.tools.stream.map(reg => reg.tool).toList // McpServerFeatures.AsyncToolRegistration.tool
     Mono.just(McpSchema.ListToolsResult(tools, null))
   }
 
@@ -350,11 +354,11 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
     (params: AnyRef) => {
       val callToolRequest = transport.unmarshalFrom(params, new TypeReference[McpSchema.CallToolRequest]() {})
       val toolRegistration = this.tools.stream.filter((tr: McpServerFeatures.AsyncToolRegistration) => callToolRequest.name == tr.tool.name).findAny
-      val error = Mono.error(new McpError("Tool not found: " + callToolRequest.name))
-      if (toolRegistration.isEmpty) 
-        return error
-      toolRegistration.map((tool: McpServerFeatures.AsyncToolRegistration) => 
-        tool.call.apply(callToolRequest.arguments)).orElse(Mono.error(new McpError("Tool not found: " + callToolRequest.name)))
+      val error = Mono.error(McpError("Tool not found: " + callToolRequest.name))
+      //      if (toolRegistration.isEmpty) //todo  handle error
+      //        return error
+      toolRegistration.map((tool: McpServerFeatures.AsyncToolRegistration) =>
+        tool.call.apply(callToolRequest.arguments)).orElse(Mono.error(McpError("Tool not found: " + callToolRequest.name)))
     }
 
   
@@ -369,10 +373,10 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   // Resource Management
   // ---------------------------------------
   def addResource(resourceHandler: McpServerFeatures.AsyncResourceRegistration): Mono[Void] = {
-    if (resourceHandler == null || resourceHandler.resource == null) return Mono.error(new McpError("Resource must not be null"))
-    if (this.serverCapabilities.resources == null) return Mono.error(new McpError("Server must be configured with resource capabilities"))
+    if (resourceHandler == null || resourceHandler.resource == null) return Mono.error(McpError("Resource must not be null"))
+    if (this.serverCapabilities.resources == null) return Mono.error(McpError("Server must be configured with resource capabilities"))
     Mono.defer(() => {
-        if (this.resources.putIfAbsent(resourceHandler.resource.uri, resourceHandler) != null) return Mono.error(new McpError("Resource with URI '" + resourceHandler.resource.uri + "' already exists"))
+      if (this.resources.putIfAbsent(resourceHandler.resource.uri, resourceHandler) != null) return Mono.error(McpError("Resource with URI '" + resourceHandler.resource.uri + "' already exists"))
         McpAsyncServer.logger.debug("Added resource handler: {}", resourceHandler.resource.uri)
         if (this.serverCapabilities.resources.listChanged) return notifyResourcesListChanged
         Mono.empty
@@ -386,8 +390,8 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
    * @return Mono that completes when clients have been notified of the change
    */
   def removeResource(resourceUri: String): Mono[Void] = {
-    if (resourceUri == null) return Mono.error(new McpError("Resource URI must not be null"))
-    if (this.serverCapabilities.resources == null) return Mono.error(new McpError("Server must be configured with resource capabilities"))
+    if (resourceUri == null) return Mono.error(McpError("Resource URI must not be null"))
+    if (this.serverCapabilities.resources == null) return Mono.error(McpError("Server must be configured with resource capabilities"))
     Mono.defer(() => {
         val removed = this.resources.remove(resourceUri)
         if (removed != null) {
@@ -395,7 +399,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
           if (this.serverCapabilities.resources.listChanged) return notifyResourcesListChanged
           return Mono.empty
         }
-        Mono.error(new McpError("Resource with URI '" + resourceUri + "' not found"))
+      Mono.error(McpError("Resource with URI '" + resourceUri + "' not found"))
       })
   }
 
@@ -407,35 +411,37 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   def notifyResourcesListChanged: Mono[Void] = this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_RESOURCES_LIST_CHANGED, null)
 
   def resourcesListRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ListResourcesResult]= (params: AnyRef) => {
-    val resourceList = this.resources.values.stream.map((re :McpServerFeatures.SyncResourceRegistration)=>
-      McpServerFeatures.AsyncResourceRegistration.fromSync(re).resource).toList
+    val resourceList = this.resources.values.stream.map(reg => reg.resource).toList
+    //    val resourceList = this.resources.values.stream.map((re :McpServerFeatures.SyncResourceRegistration)=>
+    //      McpServerFeatures.AsyncResourceRegistration.fromSync(re).resource).toList
     Mono.just(new McpSchema.ListResourcesResult(resourceList, null))
   }
 
   def resourceTemplateListRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ListResourceTemplatesResult] = (params: AnyRef) => Mono.just(new McpSchema.ListResourceTemplatesResult(this.resourceTemplates, null))
 
-  def resourcesReadRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ReadResourceRequest] = 
+  def resourcesReadRequestHandler: DefaultMcpSession.RequestHandler[McpSchema.ReadResourceResult] =
     (params: AnyRef) => {
       val resourceRequest = transport.unmarshalFrom(params, new TypeReference[McpSchema.ReadResourceRequest]() {})
       val resourceUri = resourceRequest.uri
       val registration = this.resources.get(resourceUri)
-      if (registration != null) 
-        return registration.readHandler.apply(resourceRequest) 
+      //      registration.readHandler.apply(resourceRequest)
+      if (registration != null) //todo handle error
+        registration.readHandler.apply(resourceRequest)
       else
-        Mono.error(new McpError("Resource not found: " + resourceUri))
+        Mono.error(McpError("Resource not found: " + resourceUri))
     }
 
 
   def loggingNotification(loggingMessageNotification: McpSchema.LoggingMessageNotification): Mono[Void] = {
-    if (loggingMessageNotification == null) return Mono.error(new McpError("Logging message must not be null"))
+    if (loggingMessageNotification == null) return Mono.error(McpError("Logging message must not be null"))
     val params = this.transport.unmarshalFrom(loggingMessageNotification, new TypeReference[util.Map[String, AnyRef]]() {})
     if (loggingMessageNotification.level.level < minLoggingLevel.level) return Mono.empty
     this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_MESSAGE, params)
   }
 
   def createMessage(createMessageRequest: McpSchema.CreateMessageRequest): Mono[McpSchema.CreateMessageResult] = {
-    if (this.clientCapabilities == null) return Mono.error(new McpError("Client must be initialized. Call the initialize method first!"))
-    if (this.clientCapabilities.sampling == null) return Mono.error(new McpError("Client must be configured with sampling capabilities"))
+    if (this.clientCapabilities == null) return Mono.error(McpError("Client must be initialized. Call the initialize method first!"))
+    if (this.clientCapabilities.sampling == null) return Mono.error(McpError("Client must be configured with sampling capabilities"))
     this.mcpSession.sendRequest(McpSchema.METHOD_SAMPLING_CREATE_MESSAGE, createMessageRequest, McpAsyncServer.CREATE_MESSAGE_RESULT_TYPE_REF)
   }
 

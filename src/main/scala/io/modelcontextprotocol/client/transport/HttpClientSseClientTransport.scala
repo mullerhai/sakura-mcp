@@ -168,13 +168,13 @@ class HttpClientSseClientTransport(clientBuilder: HttpClient.Builder,
    */
   override def sendMessage(message: McpSchema.JSONRPCMessage): Mono[Void] = {
     if (isClosing) return Mono.empty
-    try if (!closeLatch.await(10, TimeUnit.SECONDS)) return Mono.error(new McpError("Failed to wait for the message endpoint"))
+    try if (!closeLatch.await(10, TimeUnit.SECONDS)) return Mono.error(McpError("Failed to wait for the message endpoint"))
     catch {
       case e: InterruptedException =>
-        return Mono.error(new McpError("Failed to wait for the message endpoint"))
+        return Mono.error(McpError("Failed to wait for the message endpoint"))
     }
     val endpoint = messageEndpoint.get
-    if (endpoint == null) return Mono.error(new McpError("No message endpoint available"))
+    if (endpoint == null) return Mono.error(McpError("No message endpoint available"))
     try {
       val jsonText = this.objectMapper.writeValueAsString(message)
       val request = HttpRequest.newBuilder.uri(URI.create(this.baseUri + endpoint)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(jsonText)).build

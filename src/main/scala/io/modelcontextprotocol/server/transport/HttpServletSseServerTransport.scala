@@ -13,7 +13,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Function
-import scala.jdk.FunctionConverters._
+import scala.jdk.FunctionConverters.*
 //type.TypeReference
 
 import com.fasterxml.jackson.databind.ObjectMapper
@@ -144,6 +144,51 @@ class HttpServletSseServerTransport(val objectMapper: ObjectMapper,
   }
 
   /**
+   * Broadcasts a message to all connected clients.
+   * <p>
+   * This method serializes the message and sends it to all active client sessions. If a
+   * client is disconnected, its session is removed.
+   *
+   * @param message The message to broadcast
+   * @return A Mono that completes when the message has been sent to all clients
+   */
+  override def sendMessage(message: McpSchema.JSONRPCMessage): Mono[Void] = {
+    if (sessions.isEmpty) {
+      HttpServletSseServerTransport.logger.debug("No active sessions to broadcast message to")
+      return Mono.empty
+    }
+    Mono.create((sink: MonoSink[Void]) => {
+      try {
+        val jsonText = objectMapper.writeValueAsString(message)
+        sessions.values.forEach((session: HttpServletSseServerTransport.ClientSession) => {
+          try this.sendEvent(session.writer, HttpServletSseServerTransport.MESSAGE_EVENT_TYPE, jsonText)
+          catch {
+            case e: IOException =>
+              HttpServletSseServerTransport.logger.error("Failed to send message to session {}: {}", session.id, e.getMessage)
+              removeSession(session)
+          }
+        })
+        sink.success()
+      } catch {
+        case e: Exception =>
+          HttpServletSseServerTransport.logger.error("Failed to process message: {}", e.getMessage)
+          sink.error(McpError("Failed to process message: " + e.getMessage))
+      }
+    })
+  }
+
+  /**
+   * Sets up the message handler for processing client requests.
+   *
+   * @param handler The function to process incoming messages and produce responses
+   * @return A Mono that completes when the handler is set up
+   */
+  override def connect(handler: Function[Mono[McpSchema.JSONRPCMessage], Mono[McpSchema.JSONRPCMessage]]): Mono[Void] = {
+    this.connectHandler = handler
+    Mono.empty
+  }
+
+  /**
    * Handles POST requests for client messages.
    * <p>
    * This method processes incoming messages from clients, routes them through the
@@ -194,7 +239,7 @@ class HttpServletSseServerTransport(val objectMapper: ObjectMapper,
       }, (error: Throwable) => {
         try {
           HttpServletSseServerTransport.logger.error("Error processing message: {}", error.getMessage)
-          val mcpError = new McpError(error.getMessage)
+          val mcpError = McpError(error.getMessage)
           response.setContentType(HttpServletSseServerTransport.APPLICATION_JSON)
           response.setCharacterEncoding(HttpServletSseServerTransport.UTF_8)
           response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
@@ -217,7 +262,7 @@ class HttpServletSseServerTransport(val objectMapper: ObjectMapper,
       case e: Exception =>
         HttpServletSseServerTransport.logger.error("Invalid message format: {}", e.getMessage)
         try {
-          val mcpError = new McpError("Invalid message format: " + e.getMessage)
+          val mcpError = McpError("Invalid message format: " + e.getMessage)
           response.setContentType(HttpServletSseServerTransport.APPLICATION_JSON)
           response.setCharacterEncoding(HttpServletSseServerTransport.UTF_8)
           response.setStatus(HttpServletResponse.SC_BAD_REQUEST)
@@ -231,51 +276,6 @@ class HttpServletSseServerTransport(val objectMapper: ObjectMapper,
             response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid message format")
         }
     }
-  }
-
-  /**
-   * Sets up the message handler for processing client requests.
-   *
-   * @param handler The function to process incoming messages and produce responses
-   * @return A Mono that completes when the handler is set up
-   */
-  override def connect(handler: Function[Mono[McpSchema.JSONRPCMessage], Mono[McpSchema.JSONRPCMessage]]): Mono[Void] = {
-    this.connectHandler = handler
-    Mono.empty
-  }
-
-  /**
-   * Broadcasts a message to all connected clients.
-   * <p>
-   * This method serializes the message and sends it to all active client sessions. If a
-   * client is disconnected, its session is removed.
-   *
-   * @param message The message to broadcast
-   * @return A Mono that completes when the message has been sent to all clients
-   */
-  override def sendMessage(message: McpSchema.JSONRPCMessage): Mono[Void] = {
-    if (sessions.isEmpty) {
-      HttpServletSseServerTransport.logger.debug("No active sessions to broadcast message to")
-      return Mono.empty
-    }
-    Mono.create((sink: MonoSink[Void]) => {
-      try {
-        val jsonText = objectMapper.writeValueAsString(message)
-        sessions.values.forEach((session: HttpServletSseServerTransport.ClientSession) => {
-          try this.sendEvent(session.writer, HttpServletSseServerTransport.MESSAGE_EVENT_TYPE, jsonText)
-          catch {
-            case e: IOException =>
-              HttpServletSseServerTransport.logger.error("Failed to send message to session {}: {}", session.id, e.getMessage)
-              removeSession(session)
-          }
-        })
-        sink.success()
-      } catch {
-        case e: Exception =>
-          HttpServletSseServerTransport.logger.error("Failed to process message: {}", e.getMessage)
-          sink.error(new McpError("Failed to process message: " + e.getMessage))
-      }
-    })
   }
 
   /**

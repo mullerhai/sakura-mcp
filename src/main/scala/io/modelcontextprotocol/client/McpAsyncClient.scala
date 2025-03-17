@@ -12,13 +12,14 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.function.Function
 
 //type.TypeReference
-import scala.jdk.CollectionConverters._
 import io.modelcontextprotocol.spec.*
 import io.modelcontextprotocol.spec.DefaultMcpSession.{NotificationHandler, RequestHandler}
 import io.modelcontextprotocol.spec.McpSchema.*
 import io.modelcontextprotocol.util.{Assert, Utils}
 import org.slf4j.{Logger, LoggerFactory}
 import reactor.core.publisher.{Flux, Mono}
+
+import scala.jdk.CollectionConverters.*
 
 /**
  * The Model Context Protocol (MCP) client implementation that provides asynchronous
@@ -125,7 +126,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   if (this.clientCapabilities.roots != null) requestHandlers.put(McpSchema.METHOD_ROOTS_LIST, rootsListRequestHandler)
   // Sampling Handler
   if (this.clientCapabilities.sampling != null) {
-    if (features.samplingHandler == null) throw new McpError("Sampling handler must not be null when client capabilities include sampling")
+    if (features.samplingHandler == null) throw McpError("Sampling handler must not be null when client capabilities include sampling")
     this.samplingHandler = features.samplingHandler
     requestHandlers.put(McpSchema.METHOD_SAMPLING_CREATE_MESSAGE, samplingCreateMessageHandler)
   }
@@ -133,25 +134,25 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
 
   toolsChangeConsumersFinal.add((notification: util.List[McpSchema.Tool]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Tools changed: {}", notification)))
   if (!Utils.isEmpty(features.toolsChangeConsumers)) toolsChangeConsumersFinal.addAll(features.toolsChangeConsumers)
-  val asyncNotificationHandler: AnyRef => Mono[_$1] = asyncToolsChangeNotificationHandler(toolsChangeConsumersFinal)
+  val asyncNotificationHandler: NotificationHandler = asyncToolsChangeNotificationHandler(toolsChangeConsumersFinal)
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_TOOLS_LIST_CHANGED,asyncNotificationHandler)
   // Resources Change Notification
   val resourcesChangeConsumersFinal = new util.ArrayList[Function[util.List[McpSchema.Resource], Mono[Void]]]
   resourcesChangeConsumersFinal.add((notification: util.List[McpSchema.Resource]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Resources changed: {}", notification)))
   if (!Utils.isEmpty(features.resourcesChangeConsumers)) resourcesChangeConsumersFinal.addAll(features.resourcesChangeConsumers)
-  val kkk: AnyRef => Mono[_$1] = asyncResourcesChangeNotificationHandler(resourcesChangeConsumersFinal)
+  val kkk: NotificationHandler = asyncResourcesChangeNotificationHandler(resourcesChangeConsumersFinal)
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_RESOURCES_LIST_CHANGED,kkk )
   // Prompts Change Notification
   val promptsChangeConsumersFinal = new util.ArrayList[Function[util.List[McpSchema.Prompt], Mono[Void]]]
   promptsChangeConsumersFinal.add((notification: util.List[McpSchema.Prompt]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Prompts changed: {}", notification)))
   if (!Utils.isEmpty(features.promptsChangeConsumers)) promptsChangeConsumersFinal.addAll(features.promptsChangeConsumers)
-  val jjj: AnyRef => Mono[McpSchema.Prompt] =asyncPromptsChangeNotificationHandler(promptsChangeConsumersFinal)
+  val jjj: NotificationHandler = asyncPromptsChangeNotificationHandler(promptsChangeConsumersFinal)
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_PROMPTS_LIST_CHANGED,jjj )
   // Utility Logging Notification
   val loggingConsumersFinal = new util.ArrayList[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
   loggingConsumersFinal.add((notification: McpSchema.LoggingMessageNotification) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Logging: {}", notification)))
   if (!Utils.isEmpty(features.loggingConsumers)) loggingConsumersFinal.addAll(features.loggingConsumers)
-  val lll: AnyRef => Mono[McpSchema.LoggingMessageNotification] =asyncLoggingNotificationHandler(loggingConsumersFinal)  
+  val lll: NotificationHandler = asyncLoggingNotificationHandler(loggingConsumersFinal)
   // asyncLoggingNotificationHandler(loggingConsumersFinal)
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_MESSAGE,lll)
   this.mcpSession = new DefaultMcpSession(requestTimeout, transport, requestHandlers, notificationHandlers)
@@ -215,7 +216,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
       this.serverCapabilities = initializeResult.capabilities
       this.serverInfo = initializeResult.serverInfo
       McpAsyncClient.logger.info("Server response with Protocol: {}, Capabilities: {}, Info: {} and Instructions {}", initializeResult.protocolVersion, initializeResult.capabilities, initializeResult.serverInfo, initializeResult.instructions)
-      if (!this.protocolVersions.contains(initializeResult.protocolVersion)) Mono.error(new McpError("Unsupported protocol version from the server: " + initializeResult.protocolVersion))
+      if (!this.protocolVersions.contains(initializeResult.protocolVersion)) Mono.error(McpError("Unsupported protocol version from the server: " + initializeResult.protocolVersion))
       else this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_INITIALIZED, null).thenReturn(initializeResult)
     })
   }
@@ -289,9 +290,9 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   // Roots
   // --------------------------
   def addRoot(root: McpSchema.Root): Mono[Void] = {
-    if (root == null) return Mono.error(new McpError("Root must not be null"))
-    if (this.clientCapabilities.roots == null) return Mono.error(new McpError("Client must be configured with roots capabilities"))
-    if (this.roots.containsKey(root.uri)) return Mono.error(new McpError("Root with uri '" + root.uri + "' already exists"))
+    if (root == null) return Mono.error(McpError("Root must not be null"))
+    if (this.clientCapabilities.roots == null) return Mono.error(McpError("Client must be configured with roots capabilities"))
+    if (this.roots.containsKey(root.uri)) return Mono.error(McpError("Root with uri '" + root.uri + "' already exists"))
     this.roots.put(root.uri, root)
     McpAsyncClient.logger.debug("Added root: {}", root)
     if (this.clientCapabilities.roots.listChanged) return this.rootsListChangedNotification
@@ -305,15 +306,15 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    * @return A Mono that completes when the root is removed and notifications are sent
    */
   def removeRoot(rootUri: String): Mono[Void] = {
-    if (rootUri == null) return Mono.error(new McpError("Root uri must not be null"))
-    if (this.clientCapabilities.roots == null) return Mono.error(new McpError("Client must be configured with roots capabilities"))
+    if (rootUri == null) return Mono.error(McpError("Root uri must not be null"))
+    if (this.clientCapabilities.roots == null) return Mono.error(McpError("Client must be configured with roots capabilities"))
     val removed = this.roots.remove(rootUri)
     if (removed != null) {
       McpAsyncClient.logger.debug("Removed Root: {}", rootUri)
       if (this.clientCapabilities.roots.listChanged) return this.rootsListChangedNotification
       return Mono.empty
     }
-    Mono.error(new McpError("Root with uri '" + rootUri + "' not found"))
+    Mono.error(McpError("Root with uri '" + rootUri + "' not found"))
   }
 
   /**
@@ -352,8 +353,8 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    *         (false/absent)
    */
   def callTool(callToolRequest: McpSchema.CallToolRequest): Mono[McpSchema.CallToolResult] = {
-    if (!this.isInitialized) return Mono.error(new McpError("Client must be initialized before calling tools"))
-    if (this.serverCapabilities.tools == null) return Mono.error(new McpError("Server does not provide tools capability"))
+    if (!this.isInitialized) return Mono.error(McpError("Client must be initialized before calling tools"))
+    if (this.serverCapabilities.tools == null) return Mono.error(McpError("Server does not provide tools capability"))
     this.mcpSession.sendRequest(McpSchema.METHOD_TOOLS_CALL, callToolRequest, McpAsyncClient.CALL_TOOL_RESULT_TYPE_REF)
   }
 
@@ -375,8 +376,8 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    *         Optional cursor for pagination if more tools are available
    */
   def listTools(cursor: String): Mono[McpSchema.ListToolsResult] = {
-    if (!this.isInitialized) return Mono.error(new McpError("Client must be initialized before listing tools"))
-    if (this.serverCapabilities.tools == null) return Mono.error(new McpError("Server does not provide tools capability"))
+    if (!this.isInitialized) return Mono.error(McpError("Client must be initialized before listing tools"))
+    if (this.serverCapabilities.tools == null) return Mono.error(McpError("Server does not provide tools capability"))
     this.mcpSession.sendRequest(McpSchema.METHOD_TOOLS_LIST, new McpSchema.PaginatedRequest(cursor), McpAsyncClient.LIST_TOOLS_RESULT_TYPE_REF)
   }
 
@@ -393,7 +394,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    *         list to all registered consumers 3. Handling any errors that occur during this
    *         process
    */
-  def asyncToolsChangeNotificationHandler(toolsChangeConsumers: util.List[Function[util.List[McpSchema.Tool], Mono[Void]]]) = {
+  def asyncToolsChangeNotificationHandler(toolsChangeConsumers: util.List[Function[util.List[McpSchema.Tool], Mono[Void]]]): NotificationHandler = {
     // TODO: params are not used yet
     (params: AnyRef) =>
       listTools.flatMap((listToolsResult: McpSchema.ListToolsResult) => Flux.fromIterable(toolsChangeConsumers).flatMap((consumer: Function[util.List[McpSchema.Tool], Mono[Void]]) => consumer.apply(listToolsResult.tools)).onErrorResume((error: Throwable) => {
@@ -416,8 +417,8 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    * @return A Mono that completes with the list of resources result
    */
   def listResources(cursor: String): Mono[McpSchema.ListResourcesResult] = {
-    if (!this.isInitialized) return Mono.error(new McpError("Client must be initialized before listing resources"))
-    if (this.serverCapabilities.resources == null) return Mono.error(new McpError("Server does not provide the resources capability"))
+    if (!this.isInitialized) return Mono.error(McpError("Client must be initialized before listing resources"))
+    if (this.serverCapabilities.resources == null) return Mono.error(McpError("Server does not provide the resources capability"))
     this.mcpSession.sendRequest(McpSchema.METHOD_RESOURCES_LIST, new McpSchema.PaginatedRequest(cursor), McpAsyncClient.LIST_RESOURCES_RESULT_TYPE_REF)
   }
 
@@ -436,8 +437,8 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    * @return A Mono that completes with the resource content
    */
   def readResource(readResourceRequest: McpSchema.ReadResourceRequest): Mono[McpSchema.ReadResourceResult] = {
-    if (!this.isInitialized) return Mono.error(new McpError("Client must be initialized before reading resources"))
-    if (this.serverCapabilities.resources == null) return Mono.error(new McpError("Server does not provide the resources capability"))
+    if (!this.isInitialized) return Mono.error(McpError("Client must be initialized before reading resources"))
+    if (this.serverCapabilities.resources == null) return Mono.error(McpError("Server does not provide the resources capability"))
     this.mcpSession.sendRequest(McpSchema.METHOD_RESOURCES_READ, readResourceRequest, McpAsyncClient.READ_RESOURCE_RESULT_TYPE_REF)
   }
 
@@ -461,8 +462,8 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    * @return A Mono that completes with the list of resource templates result
    */
   def listResourceTemplates(cursor: String): Mono[McpSchema.ListResourceTemplatesResult] = {
-    if (!this.isInitialized) return Mono.error(new McpError("Client must be initialized before listing resource templates"))
-    if (this.serverCapabilities.resources == null) return Mono.error(new McpError("Server does not provide the resources capability"))
+    if (!this.isInitialized) return Mono.error(McpError("Client must be initialized before listing resource templates"))
+    if (this.serverCapabilities.resources == null) return Mono.error(McpError("Server does not provide the resources capability"))
     this.mcpSession.sendRequest(McpSchema.METHOD_RESOURCES_TEMPLATES_LIST, new McpSchema.PaginatedRequest(cursor), McpAsyncClient.LIST_RESOURCE_TEMPLATES_RESULT_TYPE_REF)
   }
 
@@ -488,7 +489,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    */
   def unsubscribeResource(unsubscribeRequest: McpSchema.UnsubscribeRequest): Mono[Void] = this.mcpSession.sendRequest(McpSchema.METHOD_RESOURCES_UNSUBSCRIBE, unsubscribeRequest, McpAsyncClient.VOID_TYPE_REFERENCE)
 
-  def asyncResourcesChangeNotificationHandler(resourcesChangeConsumers: util.List[Function[util.List[McpSchema.Resource], Mono[Void]]]) = 
+  def asyncResourcesChangeNotificationHandler(resourcesChangeConsumers: util.List[Function[util.List[McpSchema.Resource], Mono[Void]]]): NotificationHandler =
     (params: AnyRef) => listResources.flatMap((listResourcesResult: McpSchema.ListResourcesResult) =>
       Flux.fromIterable(resourcesChangeConsumers).flatMap((consumer: Function[util.List[McpSchema.Resource], Mono[Void]]) =>
         consumer.apply(listResourcesResult.resources)).onErrorResume((error: Throwable) => {
@@ -518,7 +519,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    */
   def getPrompt(getPromptRequest: McpSchema.GetPromptRequest): Mono[McpSchema.GetPromptResult] = this.mcpSession.sendRequest(McpSchema.METHOD_PROMPT_GET, getPromptRequest, McpAsyncClient.GET_PROMPT_RESULT_TYPE_REF)
 
-  def asyncPromptsChangeNotificationHandler(promptsChangeConsumers: util.List[Function[util.List[McpSchema.Prompt], Mono[Void]]]) = 
+  def asyncPromptsChangeNotificationHandler(promptsChangeConsumers: util.List[Function[util.List[McpSchema.Prompt], Mono[Void]]]): NotificationHandler =
     (params: AnyRef) => 
       listPrompts
         .flatMap((listPromptsResult: McpSchema.ListPromptsResult) => 
@@ -541,7 +542,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   // --------------------------
   // Logging
   // --------------------------
-  def asyncLoggingNotificationHandler(loggingConsumers: util.List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]) = (params: AnyRef) => {
+  def asyncLoggingNotificationHandler(loggingConsumers: util.List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]): NotificationHandler = (params: AnyRef) => {
     val loggingMessageNotification = transport.unmarshalFrom(params, new TypeReference[McpSchema.LoggingMessageNotification]() {})
     Flux.fromIterable(loggingConsumers).flatMap((consumer: Function[McpSchema.LoggingMessageNotification, Mono[Void]]) => consumer.apply(loggingMessageNotification)).`then`
   }

@@ -7,9 +7,10 @@ import io.modelcontextprotocol.spec.McpSchema
 import io.modelcontextprotocol.util.{Assert, Utils}
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import scala.jdk.CollectionConverters._
+
 import java.util
 import java.util.function.{Consumer, Function}
+import scala.jdk.CollectionConverters.*
 
 /**
  * MCP server features specification that a particular server can choose to support.
@@ -17,6 +18,37 @@ import java.util.function.{Consumer, Function}
  * @author Dariusz Jędrzejczyk
  */
 object McpServerFeatures {
+
+  case class AsyncToolRegistration(tool: McpSchema.Tool,
+                                   call: Function[util.Map[String, AnyRef], Mono[McpSchema.CallToolResult]]) {
+    def fromSync(tool: McpServerFeatures.SyncToolRegistration): McpServerFeatures.AsyncToolRegistration = {
+      // FIXME: This is temporary, proper validation should be implemented
+      if (tool == null) return null
+      new McpServerFeatures.AsyncToolRegistration(tool.tool,
+        (map: util.Map[String, AnyRef])
+        => Mono.fromCallable(() => tool.call.apply(map)).subscribeOn(Schedulers.boundedElastic))
+    }
+  }
+
+  final case class AsyncResourceRegistration(resource: McpSchema.Resource,
+                                             readHandler: Function[McpSchema.ReadResourceRequest, Mono[McpSchema.ReadResourceResult]]) {
+    def fromSync(resource: McpServerFeatures.SyncResourceRegistration): McpServerFeatures.AsyncResourceRegistration = {
+      // FIXME: This is temporary, proper validation should be implemented
+      if (resource == null) return null
+      new McpServerFeatures.AsyncResourceRegistration(resource.resource, (req: McpSchema.ReadResourceRequest) => Mono.fromCallable(() => resource.readHandler.apply(req)).subscribeOn(Schedulers.boundedElastic))
+    }
+
+  }
+
+  final case class AsyncPromptRegistration(prompt: McpSchema.Prompt,
+                                           promptHandler: Function[McpSchema.GetPromptRequest, Mono[McpSchema.GetPromptResult]]) {
+    def fromSync(prompt: McpServerFeatures.SyncPromptRegistration): McpServerFeatures.AsyncPromptRegistration = {
+      // FIXME: This is temporary, proper validation should be implemented
+      if (prompt == null) return null
+      new McpServerFeatures.AsyncPromptRegistration(prompt.prompt, (req: McpSchema.GetPromptRequest) =>
+        Mono.fromCallable(() => prompt.promptHandler.apply(req)).subscribeOn(Schedulers.boundedElastic))
+    }
+  }
   /**
    * Asynchronous server features specification.
    *
@@ -29,7 +61,7 @@ object McpServerFeatures {
    * @param rootsChangeConsumers The list of consumers that will be notified when the
    *                             roots list changes
    */
-  private[server] object Async {
+  object Async {
     /**
      * Convert a synchronous specification into an asynchronous one and provide
      * blocking code offloading to prevent accidental blocking of the non-blocking
@@ -39,7 +71,7 @@ object McpServerFeatures {
      * @return a specification which is protected from blocking calls specified by the
      *         user.
      */
-      private[server] def fromSync(syncSpec: McpServerFeatures.Sync) = {
+    def fromSync(syncSpec: McpServerFeatures.Sync) = {
         val tools = new util.ArrayList[McpServerFeatures.AsyncToolRegistration]
 //        import scala.collection.JavaConversions.*
         for (tool <- syncSpec.tools.asScala) {
@@ -62,14 +94,8 @@ object McpServerFeatures {
       }
   }
 
-  final case class AsyncToolRegistration(tool: McpSchema.Tool,
-                                         call: Function[util.Map[String, AnyRef], Mono[McpSchema.CallToolResult]])
 
-  final case class AsyncResourceRegistration(resource: McpSchema.Resource,
-                                             readHandler: Function[McpSchema.ReadResourceRequest, Mono[McpSchema.ReadResourceResult]])
 
-  final case class AsyncPromptRegistration(prompt: McpSchema.Prompt,
-                                           promptHandler: Function[McpSchema.GetPromptRequest, Mono[McpSchema.GetPromptResult]])
 
   final case class Async (serverInfo: McpSchema.Implementation, 
                                                     serverCapabilities: McpSchema.ServerCapabilities, 
@@ -90,17 +116,17 @@ object McpServerFeatures {
 
 
   object AsyncToolRegistration {
-  
+
     val tools = new util.ArrayList[McpSchema.Tool]()
     def fromSync(tool: McpServerFeatures.SyncToolRegistration): McpServerFeatures.AsyncToolRegistration = {
       // FIXME: This is temporary, proper validation should be implemented
       if (tool == null) return null
-      new McpServerFeatures.AsyncToolRegistration(tool.tool, 
-        (map: util.Map[String, AnyRef]) 
+      new McpServerFeatures.AsyncToolRegistration(tool.tool,
+        (map: util.Map[String, AnyRef])
         => Mono.fromCallable(() => tool.call.apply(map)).subscribeOn(Schedulers.boundedElastic))
     }
-     
-    
+
+
   }
 
 //  final case class AsyncToolRegistration(tool: McpSchema.Tool, 
@@ -184,7 +210,7 @@ object McpServerFeatures {
    * formatted templates
    */
   object AsyncPromptRegistration {
-//    val prompt:McpSchema.Prompt= null //new util.ArrayList[McpSchema.Prompt]()  
+    //    val prompt:McpSchema.Prompt= null //new util.ArrayList[McpSchema.Prompt]()
     def fromSync(prompt: McpServerFeatures.SyncPromptRegistration): McpServerFeatures.AsyncPromptRegistration = {
       // FIXME: This is temporary, proper validation should be implemented
       if (prompt == null) return null
