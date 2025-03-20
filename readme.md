@@ -4,7 +4,7 @@ A Scala library implementing the Model Context Protocol to enable interoperable 
 
 
 ### Warning: All readme content generate by AI google gemma3 Model ,just use as Java MCP API
-😀😁😅🤣😂🙂😇😍🤐😒
+🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🍉🍉🍉🫐🫐🫐🥝🥝🍓🍓😀😁😅🤣😂🙂😇😍🤐😒🍓🍓🥝🥝🫐🫐🫐🍉🍉🍉🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸🌸
 
 ## Table of Contents
 - [Installation](#installation)
