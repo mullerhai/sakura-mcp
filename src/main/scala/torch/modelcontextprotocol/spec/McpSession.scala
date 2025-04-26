@@ -1,12 +1,10 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.spec
+package torch.modelcontextprotocol.spec
 
 import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
-
-import java.util
 
 //type.TypeReference
 
@@ -68,7 +66,7 @@ trait McpSession {
    * @param params a map of parameters to be sent with the notification
    * @return a Mono that completes when the notification has been sent
    */
-  def sendNotification(method: String, params: util.Map[String, AnyRef]): Mono[Void]
+  def sendNotification(method: String, params: Map[String, AnyRef]): Mono[Void]
 
   /**
    * Closes the session and releases any associated resources asynchronously.

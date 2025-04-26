@@ -1,11 +1,11 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.server
+package torch.modelcontextprotocol.server
 
-import io.modelcontextprotocol.spec.McpSchema.{ClientCapabilities,ListRootsResult, LoggingMessageNotification,ListToolsResult}
-import io.modelcontextprotocol.spec.{McpError, McpSchema}
-import io.modelcontextprotocol.util.Assert
+import torch.modelcontextprotocol.spec.McpSchema.{ClientCapabilities,ListRootsResult, LoggingMessageNotification,ListToolsResult}
+import torch.modelcontextprotocol.spec.{McpError, McpSchema}
+import torch.modelcontextprotocol.util.Assert
 
 /**
  * A synchronous implementation of the Model Context Protocol (MCP) server that wraps

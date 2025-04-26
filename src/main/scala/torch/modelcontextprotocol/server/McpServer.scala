@@ -1,15 +1,17 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.server
+package torch.modelcontextprotocol.server
 
-import io.modelcontextprotocol.spec.McpSchema.{CallToolResult, ResourceTemplate}
-import io.modelcontextprotocol.spec.{McpSchema, McpTransport, ServerMcpTransport}
-import io.modelcontextprotocol.util.Assert
+import torch.modelcontextprotocol.spec.McpSchema.ResourceTemplate
 import reactor.core.publisher.Mono
-import scala.jdk.CollectionConverters._
+import torch.modelcontextprotocol.spec.{McpSchema, ServerMcpTransport}
+import torch.modelcontextprotocol.util.Assert
+
 import java.util
 import java.util.function.{Consumer, Function}
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 
 /**
  * Factory class for creating Model Context Protocol (MCP) servers. MCP servers expose
@@ -144,7 +146,7 @@ object McpServer {
      * Each tool is uniquely identified by a name and includes metadata describing its
      * schema.
      */
-    final private val tools = new util.ArrayList[McpServerFeatures.AsyncToolRegistration]
+    final private val tools = new ListBuffer[McpServerFeatures.AsyncToolRegistration]
     /**
      * The Model Context Protocol (MCP) provides a standardized way for servers to
      * expose resources to clients. Resources allow servers to share data that
@@ -152,8 +154,8 @@ object McpServer {
      * application-specific information. Each resource is uniquely identified by a
      * URI.
      */
-    final private val resources = new util.HashMap[String, McpServerFeatures.AsyncResourceRegistration]
-    final private val resourceTemplates = new util.ArrayList[McpSchema.ResourceTemplate]
+    final private val resources = new mutable.HashMap[String, McpServerFeatures.AsyncResourceRegistration]
+    final private val resourceTemplates = new ListBuffer[McpSchema.ResourceTemplate]
     /**
      * The Model Context Protocol (MCP) provides a standardized way for servers to
      * expose prompt templates to clients. Prompts allow servers to provide structured
@@ -161,8 +163,8 @@ object McpServer {
      * discover available prompts, retrieve their contents, and provide arguments to
      * customize them.
      */
-    final private val prompts = new util.HashMap[String, McpServerFeatures.AsyncPromptRegistration]
-    final private val rootsChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Root], Mono[Void]]]
+    final private val prompts = new mutable.HashMap[String, McpServerFeatures.AsyncPromptRegistration]
+    final private val rootsChangeConsumers = new ListBuffer[Function[List[McpSchema.Root], Mono[Void]]]
 
     /**
      * Sets the server implementation information that will be shared with clients
@@ -238,10 +240,10 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if tool or handler is null
      */
-    def tool(tool: McpSchema.Tool, handler: Function[util.Map[String, AnyRef], Mono[McpSchema.CallToolResult]]): McpServer.AsyncSpec = {
+    def tool(tool: McpSchema.Tool, handler: Function[Map[String, AnyRef], Mono[McpSchema.CallToolResult]]): McpServer.AsyncSpec = {
       Assert.notNull(tool, "Tool must not be null")
       Assert.notNull(handler, "Handler must not be null")
-      this.tools.add(new McpServerFeatures.AsyncToolRegistration(tool, handler))
+      this.tools.append(new McpServerFeatures.AsyncToolRegistration(tool, handler))
       this
     }
 
@@ -256,7 +258,7 @@ object McpServer {
      * @throws IllegalArgumentException if toolRegistrations is null
      * @see #tools(McpServerFeatures.AsyncToolRegistration...)
      */
-    def tools(toolRegistrations: util.List[McpServerFeatures.AsyncToolRegistration]): McpServer.AsyncSpec = {
+    def tools(toolRegistrations: List[McpServerFeatures.AsyncToolRegistration]): McpServer.AsyncSpec = {
       Assert.notNull(toolRegistrations, "Tool handlers list must not be null")
       this.tools.addAll(toolRegistrations)
       this
@@ -281,7 +283,7 @@ object McpServer {
      */
     def tools(toolRegistrations: McpServerFeatures.AsyncToolRegistration*): McpServer.AsyncSpec = {
       for (tool <- toolRegistrations) {
-        this.tools.add(tool)
+        this.tools.append(tool)
       }
       this
     }
@@ -297,9 +299,9 @@ object McpServer {
      * @throws IllegalArgumentException if resourceRegsitrations is null
      * @see #resources(McpServerFeatures.AsyncResourceRegistration...)
      */
-    def resources(resourceRegsitrations: util.Map[String, McpServerFeatures.AsyncResourceRegistration]): McpServer.AsyncSpec = {
+    def resources(resourceRegsitrations: mutable.Map[String, McpServerFeatures.AsyncResourceRegistration]): McpServer.AsyncSpec = {
       Assert.notNull(resourceRegsitrations, "Resource handlers map must not be null")
-      this.resources.putAll(resourceRegsitrations)
+      this.resources.addAll(resourceRegsitrations)
       this
     }
 
@@ -312,10 +314,10 @@ object McpServer {
      * @throws IllegalArgumentException if resourceRegsitrations is null
      * @see #resources(McpServerFeatures.AsyncResourceRegistration...)
      */
-    def resources(resourceRegsitrations: util.List[McpServerFeatures.AsyncResourceRegistration]): McpServer.AsyncSpec = {
+    def resources(resourceRegsitrations: List[McpServerFeatures.AsyncResourceRegistration]): McpServer.AsyncSpec = {
       Assert.notNull(resourceRegsitrations, "Resource handlers list must not be null")
 //      import scala.collection.JavaConversions.*
-      for (resource <- resourceRegsitrations.asScala) {
+      for (resource <- resourceRegsitrations) {
         this.resources.put(resource.resource.uri, resource)
       }
       this
@@ -362,7 +364,7 @@ object McpServer {
      * @return This builder instance for method chaining
      * @see #resourceTemplates(ResourceTemplate...)
      */
-    def resourceTemplates(resourceTemplates: util.List[McpSchema.ResourceTemplate]): McpServer.AsyncSpec = {
+    def resourceTemplates(resourceTemplates: List[McpSchema.ResourceTemplate]): McpServer.AsyncSpec = {
       this.resourceTemplates.addAll(resourceTemplates)
       this
     }
@@ -377,7 +379,7 @@ object McpServer {
      */
     def resourceTemplates(resourceTemplates: McpSchema.ResourceTemplate*): McpServer.AsyncSpec = {
       for (resourceTemplate <- resourceTemplates) {
-        this.resourceTemplates.add(resourceTemplate)
+        this.resourceTemplates.append(resourceTemplate)
       }
       this
     }
@@ -398,8 +400,8 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if prompts is null
      */
-    def prompts(prompts: util.Map[String, McpServerFeatures.AsyncPromptRegistration]): McpServer.AsyncSpec = {
-      this.prompts.putAll(prompts)
+    def prompts(prompts: mutable.Map[String, McpServerFeatures.AsyncPromptRegistration]): McpServer.AsyncSpec = {
+      this.prompts.addAll(prompts)
       this
     }
 
@@ -412,9 +414,9 @@ object McpServer {
      * @throws IllegalArgumentException if prompts is null
      * @see #prompts(McpServerFeatures.AsyncPromptRegistration...)
      */
-    def prompts(prompts: util.List[McpServerFeatures.AsyncPromptRegistration]): McpServer.AsyncSpec = {
+    def prompts(prompts: List[McpServerFeatures.AsyncPromptRegistration]): McpServer.AsyncSpec = {
 //      import scala.collection.JavaConversions.*
-      for (prompt <- prompts.asScala) {
+      for (prompt <- prompts) {
         this.prompts.put(prompt.prompt.name, prompt)
       }
       this
@@ -452,9 +454,9 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if consumer is null
      */
-    def rootsChangeConsumer(consumer: Function[util.List[McpSchema.Root], Mono[Void]]): McpServer.AsyncSpec = {
+    def rootsChangeConsumer(consumer: Function[List[McpSchema.Root], Mono[Void]]): McpServer.AsyncSpec = {
       Assert.notNull(consumer, "Consumer must not be null")
-      this.rootsChangeConsumers.add(consumer)
+      this.rootsChangeConsumers.append(consumer)
       this
     }
 
@@ -467,7 +469,7 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if consumers is null
      */
-    def rootsChangeConsumers(consumers: util.List[Function[util.List[McpSchema.Root], Mono[Void]]]): McpServer.AsyncSpec = {
+    def rootsChangeConsumers(consumers: List[Function[List[McpSchema.Root], Mono[Void]]]): McpServer.AsyncSpec = {
       Assert.notNull(consumers, "Consumers list must not be null")
       this.rootsChangeConsumers.addAll(consumers)
       this
@@ -482,9 +484,9 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if consumers is null
      */
-    def rootsChangeConsumers(@SuppressWarnings(Array("unchecked")) consumers: Function[util.List[McpSchema.Root], Mono[Void]]*): McpServer.AsyncSpec = {
+    def rootsChangeConsumers(@SuppressWarnings(Array("unchecked")) consumers: Function[List[McpSchema.Root], Mono[Void]]*): McpServer.AsyncSpec = {
       for (consumer <- consumers) {
-        this.rootsChangeConsumers.add(consumer)
+        this.rootsChangeConsumers.append(consumer)
       }
       this
     }
@@ -495,7 +497,7 @@ object McpServer {
      * @return A new instance of {@link McpAsyncServer} configured with this builder's
      *         settings
      */
-    def build = new McpAsyncServer(this.transport, new McpServerFeatures.Async(this.serverInfo, this.serverCapabilities, this.tools, this.resources, this.resourceTemplates, this.prompts, this.rootsChangeConsumers))
+    def build = new McpAsyncServer(this.transport, new McpServerFeatures.Async(this.serverInfo, this.serverCapabilities, this.tools.toList, this.resources, this.resourceTemplates.toList, this.prompts, this.rootsChangeConsumers.toList))
   }
 
   /**
@@ -516,7 +518,7 @@ object McpServer {
      * Each tool is uniquely identified by a name and includes metadata describing its
      * schema.
      */
-    final private val tools = new util.ArrayList[McpServerFeatures.SyncToolRegistration]
+    final private val tools = new ListBuffer[McpServerFeatures.SyncToolRegistration]
     /**
      * The Model Context Protocol (MCP) provides a standardized way for servers to
      * expose resources to clients. Resources allow servers to share data that
@@ -524,8 +526,8 @@ object McpServer {
      * application-specific information. Each resource is uniquely identified by a
      * URI.
      */
-    final private val resources = new util.HashMap[String, McpServerFeatures.SyncResourceRegistration]
-    final private val resourceTemplates = new util.ArrayList[McpSchema.ResourceTemplate]
+    final private val resources = new mutable.HashMap[String, McpServerFeatures.SyncResourceRegistration]
+    final private val resourceTemplates = new ListBuffer[McpSchema.ResourceTemplate]
     /**
      * The Model Context Protocol (MCP) provides a standardized way for servers to
      * expose prompt templates to clients. Prompts allow servers to provide structured
@@ -533,8 +535,8 @@ object McpServer {
      * discover available prompts, retrieve their contents, and provide arguments to
      * customize them.
      */
-    final private val prompts = new util.HashMap[String, McpServerFeatures.SyncPromptRegistration]
-    final private val rootsChangeConsumers = new util.ArrayList[Consumer[util.List[McpSchema.Root]]]
+    final private val prompts = new mutable.HashMap[String, McpServerFeatures.SyncPromptRegistration]
+    final private val rootsChangeConsumers = new ListBuffer[Consumer[List[McpSchema.Root]]]
 
     /**
      * Sets the server implementation information that will be shared with clients
@@ -610,10 +612,10 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if tool or handler is null
      */
-    def tool(tool: McpSchema.Tool, handler: Function[util.Map[String, AnyRef], McpSchema.CallToolResult]): McpServer.SyncSpec = {
+    def tool(tool: McpSchema.Tool, handler: Function[Map[String, AnyRef], McpSchema.CallToolResult]): McpServer.SyncSpec = {
       Assert.notNull(tool, "Tool must not be null")
       Assert.notNull(handler, "Handler must not be null")
-      this.tools.add(new McpServerFeatures.SyncToolRegistration(tool, handler))
+      this.tools.append(new McpServerFeatures.SyncToolRegistration(tool, handler))
       this
     }
 
@@ -628,7 +630,7 @@ object McpServer {
      * @throws IllegalArgumentException if toolRegistrations is null
      * @see #tools(McpServerFeatures.SyncToolRegistration...)
      */
-    def tools(toolRegistrations: util.List[McpServerFeatures.SyncToolRegistration]): McpServer.SyncSpec = {
+    def tools(toolRegistrations: List[McpServerFeatures.SyncToolRegistration]): McpServer.SyncSpec = {
       Assert.notNull(toolRegistrations, "Tool handlers list must not be null")
       this.tools.addAll(toolRegistrations)
       this
@@ -653,7 +655,7 @@ object McpServer {
      */
     def tools(toolRegistrations: McpServerFeatures.SyncToolRegistration*): McpServer.SyncSpec = {
       for (tool <- toolRegistrations) {
-        this.tools.add(tool)
+        this.tools.append(tool)
       }
       this
     }
@@ -669,9 +671,9 @@ object McpServer {
      * @throws IllegalArgumentException if resourceRegsitrations is null
      * @see #resources(McpServerFeatures.SyncResourceRegistration...)
      */
-    def resources(resourceRegsitrations: util.Map[String, McpServerFeatures.SyncResourceRegistration]): McpServer.SyncSpec = {
+    def resources(resourceRegsitrations: mutable.Map[String, McpServerFeatures.SyncResourceRegistration]): McpServer.SyncSpec = {
       Assert.notNull(resourceRegsitrations, "Resource handlers map must not be null")
-      this.resources.putAll(resourceRegsitrations)
+      this.resources.addAll(resourceRegsitrations)
       this
     }
 
@@ -684,10 +686,10 @@ object McpServer {
      * @throws IllegalArgumentException if resourceRegsitrations is null
      * @see #resources(McpServerFeatures.SyncResourceRegistration...)
      */
-    def resources(resourceRegsitrations: util.List[McpServerFeatures.SyncResourceRegistration]): McpServer.SyncSpec = {
+    def resources(resourceRegsitrations: List[McpServerFeatures.SyncResourceRegistration]): McpServer.SyncSpec = {
       Assert.notNull(resourceRegsitrations, "Resource handlers list must not be null")
 //      import scala.collection.JavaConversions.*
-      for (resource <- resourceRegsitrations.asScala) {
+      for (resource <- resourceRegsitrations) {
         this.resources.put(resource.resource.uri, resource)
       }
       this
@@ -734,7 +736,7 @@ object McpServer {
      * @return This builder instance for method chaining
      * @see #resourceTemplates(ResourceTemplate...)
      */
-    def resourceTemplates(resourceTemplates: util.List[McpSchema.ResourceTemplate]): McpServer.SyncSpec = {
+    def resourceTemplates(resourceTemplates: List[McpSchema.ResourceTemplate]): McpServer.SyncSpec = {
       this.resourceTemplates.addAll(resourceTemplates)
       this
     }
@@ -749,7 +751,7 @@ object McpServer {
      */
     def resourceTemplates(resourceTemplates: McpSchema.ResourceTemplate*): McpServer.SyncSpec = {
       for (resourceTemplate <- resourceTemplates) {
-        this.resourceTemplates.add(resourceTemplate)
+        this.resourceTemplates.append(resourceTemplate)
       }
       this
     }
@@ -772,8 +774,8 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if prompts is null
      */
-    def prompts(prompts: util.Map[String, McpServerFeatures.SyncPromptRegistration]): McpServer.SyncSpec = {
-      this.prompts.putAll(prompts)
+    def prompts(prompts: mutable.Map[String, McpServerFeatures.SyncPromptRegistration]): McpServer.SyncSpec = {
+      this.prompts.addAll(prompts)
       this
     }
 
@@ -786,9 +788,9 @@ object McpServer {
      * @throws IllegalArgumentException if prompts is null
      * @see #prompts(McpServerFeatures.SyncPromptRegistration...)
      */
-    def prompts(prompts: util.List[McpServerFeatures.SyncPromptRegistration]): McpServer.SyncSpec = {
+    def prompts(prompts: List[McpServerFeatures.SyncPromptRegistration]): McpServer.SyncSpec = {
 //      import scala.collection.JavaConversions.*
-      for (prompt <- prompts.asScala) {
+      for (prompt <- prompts) {
         this.prompts.put(prompt.prompt.name, prompt)
       }
       this
@@ -826,9 +828,9 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if consumer is null
      */
-    def rootsChangeConsumer(consumer: Consumer[util.List[McpSchema.Root]]): McpServer.SyncSpec = {
+    def rootsChangeConsumer(consumer: Consumer[List[McpSchema.Root]]): McpServer.SyncSpec = {
       Assert.notNull(consumer, "Consumer must not be null")
-      this.rootsChangeConsumers.add(consumer)
+      this.rootsChangeConsumers.append(consumer)
       this
     }
 
@@ -841,7 +843,7 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if consumers is null
      */
-    def rootsChangeConsumers(consumers: util.List[Consumer[util.List[McpSchema.Root]]]): McpServer.SyncSpec = {
+    def rootsChangeConsumers(consumers: List[Consumer[List[McpSchema.Root]]]): McpServer.SyncSpec = {
       Assert.notNull(consumers, "Consumers list must not be null")
       this.rootsChangeConsumers.addAll(consumers)
       this
@@ -856,9 +858,9 @@ object McpServer {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if consumers is null
      */
-    def rootsChangeConsumers(consumers: Consumer[util.List[McpSchema.Root]]*): McpServer.SyncSpec = {
+    def rootsChangeConsumers(consumers: Consumer[List[McpSchema.Root]]*): McpServer.SyncSpec = {
       for (consumer <- consumers) {
-        this.rootsChangeConsumers.add(consumer)
+        this.rootsChangeConsumers.append(consumer)
       }
       this
     }
@@ -870,7 +872,7 @@ object McpServer {
      *         settings
      */
     def build: McpSyncServer = {
-      val syncFeatures = new McpServerFeatures.Sync(this.serverInfo, this.serverCapabilities, this.tools, this.resources, this.resourceTemplates, this.prompts, this.rootsChangeConsumers)
+      val syncFeatures = new McpServerFeatures.Sync(this.serverInfo, this.serverCapabilities, this.tools.toList, this.resources, this.resourceTemplates.toList, this.prompts, this.rootsChangeConsumers.toList)
       new McpSyncServer(new McpAsyncServer(this.transport, McpServerFeatures.Async.fromSync(syncFeatures)))
     }
   }

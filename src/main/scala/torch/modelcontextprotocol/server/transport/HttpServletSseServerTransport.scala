@@ -1,7 +1,7 @@
 /*
 * Copyright 2024 - 2024 the original author or authors.
 */
-package io.modelcontextprotocol.server.transport
+package torch.modelcontextprotocol.server.transport
 
 import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
@@ -17,12 +17,12 @@ import scala.jdk.FunctionConverters.*
 //type.TypeReference
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.modelcontextprotocol.spec.{McpError, McpSchema, ServerMcpTransport}
 import jakarta.servlet.annotation.WebServlet
 import jakarta.servlet.http.{HttpServlet, HttpServletRequest, HttpServletResponse}
 import jakarta.servlet.{AsyncContext, ServletException}
 import org.slf4j.{Logger, LoggerFactory}
 import reactor.core.publisher.Mono
+import torch.modelcontextprotocol.spec.{McpError, McpSchema, ServerMcpTransport}
 
 /**
  * A Servlet-based implementation of the MCP HTTP with Server-Sent Events (SSE) transport

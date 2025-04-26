@@ -1,9 +1,10 @@
 /*
 * Copyright 2024 - 2024 the original author or authors.
 */
-package io.modelcontextprotocol.spec
-import io.modelcontextprotocol.spec.McpSchema.JSONRPCResponse
-import io.modelcontextprotocol.spec.McpSchema.JSONRPCResponse.JSONRPCError
+package torch.modelcontextprotocol.spec
+
+import McpSchema.JSONRPCResponse
+import McpSchema.JSONRPCResponse.JSONRPCError
 
 import java.lang.RuntimeException
 object McpError {

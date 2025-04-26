@@ -1,19 +1,19 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.spec
+package torch.modelcontextprotocol.spec
 
-import io.modelcontextprotocol.spec.McpSchema.JSONRPCResponse
-import io.modelcontextprotocol.util.Assert
+import McpSchema.JSONRPCResponse
 import com.fasterxml.jackson.core.*
 import com.fasterxml.jackson.core.`type`.TypeReference
 import reactor.core.publisher.SynchronousSink
+import torch.modelcontextprotocol.util.Assert
 
 import java.time.Duration
 import java.util
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
 import scala.jdk.FunctionConverters.*
 //type.TypeReference
 
@@ -84,7 +84,7 @@ object DefaultMcpSession {
 
   def getMethodNotFoundError(method: String): DefaultMcpSession.MethodNotFoundError = method match {
     case McpSchema.METHOD_ROOTS_LIST =>
-      new DefaultMcpSession.MethodNotFoundError(method, "Roots not supported", util.Map.of("reason", "Client does not have roots capability"))
+      new DefaultMcpSession.MethodNotFoundError(method, "Roots not supported", Map("reason" -> "Client does not have roots capability"))
     case _ =>
       new DefaultMcpSession.MethodNotFoundError(method, "Method not found: " + method, null)
   }
@@ -94,8 +94,8 @@ class DefaultMcpSession(/** Duration to wait for request responses before timing
                         val requestTimeout: Duration,
                         /** Transport layer implementation for message exchange */
                         val transport: McpTransport,
-                        requestHandlers: ConcurrentHashMap[String, DefaultMcpSession.RequestHandler[_]],
-                        notificationHandlers: ConcurrentHashMap[String, DefaultMcpSession.NotificationHandler]) extends McpSession {
+                        requestHandlers: ConcurrentHashMap[String, DefaultMcpSession.RequestHandler[?]],
+                        notificationHandlers: ConcurrentMap[String, DefaultMcpSession.NotificationHandler]) extends McpSession {
   /** Map of pending responses keyed by request ID */
   final val pendingResponses = new ConcurrentHashMap[AnyRef, MonoSink[McpSchema.JSONRPCResponse]]
   /** Map of request handlers keyed by method name */
@@ -138,7 +138,7 @@ class DefaultMcpSession(/** Duration to wait for request responses before timing
    * @param params The notification parameters
    * @return A Mono that completes when the notification is sent
    */
-  override def sendNotification(method: String, params: util.Map[String, AnyRef]): Mono[Void] = {
+  override def sendNotification(method: String, params: Map[String, AnyRef]): Mono[Void] = {
     val jsonrpcNotification = McpSchema.JSONRPCNotification(McpSchema.JSONRPC_VERSION, method, params)
     this.transport.sendMessage(jsonrpcNotification)
   }

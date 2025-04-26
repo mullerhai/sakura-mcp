@@ -1,26 +1,27 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.client.transport
+package torch.modelcontextprotocol.client.transport
 
 import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.modelcontextprotocol.spec.McpSchema.JSONRPCMessage
-import io.modelcontextprotocol.spec.{ClientMcpTransport, McpSchema}
-import io.modelcontextprotocol.util.Assert
-import org.slf4j.{Logger, LoggerFactory}
+import torch.modelcontextprotocol.spec.McpSchema.JSONRPCMessage
+import org.slf4j.LoggerFactory
 import reactor.core.publisher.{Flux, Mono, Sinks, SynchronousSink}
 import reactor.core.scheduler.{Scheduler, Schedulers}
 import reactor.util.context.Context
+import torch.modelcontextprotocol.spec.{ClientMcpTransport, McpSchema}
+import torch.modelcontextprotocol.util.Assert
 
-import scala.jdk.CollectionConverters.*
-import scala.jdk.FutureConverters._
 import java.io.{BufferedReader, IOException, InputStreamReader}
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util
 import java.util.concurrent.{CompletableFuture, Executors}
 import java.util.function.{Consumer, Function}
+import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters.*
+import scala.jdk.FutureConverters.*
 import scala.util.control.Breaks.break
 
 /**
@@ -91,12 +92,12 @@ class StdioClientTransport(/** Parameters for configuring and starting the serve
     handleIncomingMessages(handler)
     handleIncomingErrors()
     // Prepare command and environment
-    val fullCommand = new util.ArrayList[String]
-    fullCommand.add(params.getCommand)
+    val fullCommand = new ListBuffer[String]
+    fullCommand.append(params.getCommand)
     fullCommand.addAll(params.getArgs)
     val processBuilder = this.getProcessBuilder
-    processBuilder.command(fullCommand)
-    processBuilder.environment.putAll(params.getEnv)
+    processBuilder.command(fullCommand.toArray *)
+    processBuilder.environment.putAll(params.getEnv.asJava)
     // Start the process
     try this.process = processBuilder.start
     catch {
@@ -283,26 +284,50 @@ class StdioClientTransport(/** Parameters for configuring and starting the serve
    *
    * @return A Mono that completes when the transport is closed
    */
+
+  import java.lang.Process as JavaProcess
   override def closeGracefully: Mono[Void] = Mono.fromRunnable(() => {
     isClosing = true
     StdioClientTransport.logger.debug("Initiating graceful shutdown")
   }).`then`(Mono.defer(() => {
-
+    // First complete all sinks to stop accepting new messages
     // First complete all sinks to stop accepting new messages
     inboundSink.tryEmitComplete
     outboundSink.tryEmitComplete
     errorSink.tryEmitComplete
+
+    //    inboundSink.asInstanceOf[AnyRef].getClass.getMethod("tryEmitComplete").invoke(inboundSink)
+    //    outboundSink.asInstanceOf[AnyRef].getClass.getMethod("tryEmitComplete").invoke(outboundSink)
+    //    errorSink.asInstanceOf[AnyRef].getClass.getMethod("tryEmitComplete").invoke(errorSink)
     // Give a short time for any pending messages to be processed
     Mono.delay(Duration.ofMillis(100))
   })).`then`(Mono.fromFuture(() => {
     StdioClientTransport.logger.debug("Sending TERM to process")
     if (this.process != null) {
       this.process.destroy()
-      process.onExit
+      // 使用 Java 9+ 的 onExit 方法
+      CompletableFuture.supplyAsync(() => {
+        try {
+          process.waitFor()
+          process
+        } catch {
+          case e: InterruptedException =>
+            Thread.currentThread().interrupt()
+            throw e
+        }
+      })
+    } else {
+      // 模拟 failedFuture 方法
+      val future = new CompletableFuture[JavaProcess]()
+      future.completeExceptionally(new RuntimeException("Process not started"))
+      future
     }
-    else CompletableFuture.failedFuture(new RuntimeException("Process not started"))
-  })).doOnNext((process: Process) => {
-    if (process.exitValue != 0) StdioClientTransport.logger.warn("Process terminated with code " + process.exitValue)
+  })).doOnNext(new Consumer[JavaProcess] {
+    override def accept(process: JavaProcess): Unit = {
+      if (process.exitValue() != 0) {
+        StdioClientTransport.logger.warn("Process terminated with code " + process.exitValue())
+      }
+    }
   }).`then`(Mono.fromRunnable(() => {
     try {
       // The Threads are blocked on readLine so disposeGracefully would not
@@ -311,11 +336,49 @@ class StdioClientTransport(/** Parameters for configuring and starting the serve
       errorScheduler.dispose()
       outboundScheduler.dispose()
       StdioClientTransport.logger.debug("Graceful shutdown completed")
+      //      inboundScheduler.asInstanceOf[AnyRef].getClass.getMethod("dispose").invoke(inboundScheduler)
+      //      errorScheduler.asInstanceOf[AnyRef].getClass.getMethod("dispose").invoke(errorScheduler)
+      //      outboundScheduler.asInstanceOf[AnyRef].getClass.getMethod("dispose").invoke(outboundScheduler)
+      //      StdioClientTransport.logger.debug("Graceful shutdown completed")
     } catch {
       case e: Exception =>
         StdioClientTransport.logger.error("Error during graceful shutdown", e)
     }
-  })).`then`.subscribeOn(Schedulers.boundedElastic)
+  })).`then`().subscribeOn(Schedulers.boundedElastic)
+
+  //  override def closeGracefullys: Mono[Void] = Mono.fromRunnable(() => {
+  //    isClosing = true
+  //    StdioClientTransport.logger.debug("Initiating graceful shutdown")
+  //  }).`then`(Mono.defer(() => {
+  //
+  //    // First complete all sinks to stop accepting new messages
+  //    inboundSink.tryEmitComplete
+  //    outboundSink.tryEmitComplete
+  //    errorSink.tryEmitComplete
+  //    // Give a short time for any pending messages to be processed
+  //    Mono.delay(Duration.ofMillis(100))
+  //  })).`then`(Mono.fromFuture(() => {
+  //    StdioClientTransport.logger.debug("Sending TERM to process")
+  //    if (this.process != null) {
+  //      this.process.destroy()
+  //      process.onExit()
+  //    }
+  //    else CompletableFuture.failedFuture(new RuntimeException("Process not started"))
+  //  })).doOnNext((process: Process) => {
+  //    if (process.exitValue != 0) StdioClientTransport.logger.warn("Process terminated with code " + process.exitValue)
+  //  }).`then`(Mono.fromRunnable(() => {
+  //    try {
+  //      // The Threads are blocked on readLine so disposeGracefully would not
+  //      // interrupt them, therefore we issue an async hard dispose.
+  //      inboundScheduler.dispose()
+  //      errorScheduler.dispose()
+  //      outboundScheduler.dispose()
+  //      StdioClientTransport.logger.debug("Graceful shutdown completed")
+  //    } catch {
+  //      case e: Exception =>
+  //        StdioClientTransport.logger.error("Error during graceful shutdown", e)
+  //    }
+  //  })).`then`.subscribeOn(Schedulers.boundedElastic)
 
   def getErrorSink: Sinks.Many[String] = this.errorSink
 

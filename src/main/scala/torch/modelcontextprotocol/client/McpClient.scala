@@ -1,16 +1,18 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.client
+package torch.modelcontextprotocol.client
 
-import io.modelcontextprotocol.spec.McpSchema.*
-import io.modelcontextprotocol.spec.{ClientMcpTransport, McpSchema, McpTransport}
-import io.modelcontextprotocol.util.Assert
+import torch.modelcontextprotocol.spec.McpSchema.*
 import reactor.core.publisher.Mono
-import scala.jdk.CollectionConverters._
+import torch.modelcontextprotocol.spec.{ClientMcpTransport, McpSchema}
+import torch.modelcontextprotocol.util.Assert
+
 import java.time.Duration
 import java.util
-import java.util.function.{Consumer, Function}
+import java.util.function.Consumer
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 
 /**
  * Factory class for creating Model Context Protocol (MCP) clients. MCP is a protocol that
@@ -142,11 +144,11 @@ object McpClient {
     private var requestTimeout = Duration.ofSeconds(20) // Default timeout
     private var capabilities: McpSchema.ClientCapabilities = null
     private var clientInfo = new McpSchema.Implementation("Java SDK MCP Client", "1.0.0")
-    final private val roots = new util.HashMap[String, McpSchema.Root]
-    final private val toolsChangeConsumers = new util.ArrayList[Consumer[util.List[McpSchema.Tool]]]
-    final private val resourcesChangeConsumers = new util.ArrayList[Consumer[util.List[McpSchema.Resource]]]
-    final private val promptsChangeConsumers = new util.ArrayList[Consumer[util.List[McpSchema.Prompt]]]
-    final private val loggingConsumers = new util.ArrayList[Consumer[McpSchema.LoggingMessageNotification]]
+    final private val roots = new mutable.HashMap[String, McpSchema.Root]
+    final private val toolsChangeConsumers = new ListBuffer[Consumer[List[McpSchema.Tool]]]
+    final private val resourcesChangeConsumers = new ListBuffer[Consumer[List[McpSchema.Resource]]]
+    final private val promptsChangeConsumers = new ListBuffer[Consumer[List[McpSchema.Prompt]]]
+    final private val loggingConsumers = new ListBuffer[Consumer[McpSchema.LoggingMessageNotification]]
     private var samplingHandler: Function[McpSchema.CreateMessageRequest, McpSchema.CreateMessageResult] = null
 
     /**
@@ -205,10 +207,10 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if roots is null
      */
-    def roots(roots: util.List[McpSchema.Root]): McpClient.SyncSpec = {
+    def roots(roots: List[McpSchema.Root]): McpClient.SyncSpec = {
       Assert.notNull(roots, "Roots must not be null")
 //      import scala.collection.JavaConversions.*
-      for (root <- roots.asScala) {
+      for (root <- roots) {
         this.roots.put(root.uri, root)
       }
       this
@@ -257,9 +259,9 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if toolsChangeConsumer is null
      */
-    def toolsChangeConsumer(toolsChangeConsumer: Consumer[util.List[McpSchema.Tool]]): McpClient.SyncSpec = {
+    def toolsChangeConsumer(toolsChangeConsumer: Consumer[List[McpSchema.Tool]]): McpClient.SyncSpec = {
       Assert.notNull(toolsChangeConsumer, "Tools change consumer must not be null")
-      this.toolsChangeConsumers.add(toolsChangeConsumer)
+      this.toolsChangeConsumers.append(toolsChangeConsumer)
       this
     }
 
@@ -273,9 +275,9 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if resourcesChangeConsumer is null
      */
-    def resourcesChangeConsumer(resourcesChangeConsumer: Consumer[util.List[McpSchema.Resource]]): McpClient.SyncSpec = {
+    def resourcesChangeConsumer(resourcesChangeConsumer: Consumer[List[McpSchema.Resource]]): McpClient.SyncSpec = {
       Assert.notNull(resourcesChangeConsumer, "Resources change consumer must not be null")
-      this.resourcesChangeConsumers.add(resourcesChangeConsumer)
+      this.resourcesChangeConsumers.append(resourcesChangeConsumer)
       this
     }
 
@@ -289,9 +291,9 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if promptsChangeConsumer is null
      */
-    def promptsChangeConsumer(promptsChangeConsumer: Consumer[util.List[McpSchema.Prompt]]): McpClient.SyncSpec = {
+    def promptsChangeConsumer(promptsChangeConsumer: Consumer[List[McpSchema.Prompt]]): McpClient.SyncSpec = {
       Assert.notNull(promptsChangeConsumer, "Prompts change consumer must not be null")
-      this.promptsChangeConsumers.add(promptsChangeConsumer)
+      this.promptsChangeConsumers.append(promptsChangeConsumer)
       this
     }
 
@@ -306,7 +308,7 @@ object McpClient {
      */
     def loggingConsumer(loggingConsumer: Consumer[McpSchema.LoggingMessageNotification]): McpClient.SyncSpec = {
       Assert.notNull(loggingConsumer, "Logging consumer must not be null")
-      this.loggingConsumers.add(loggingConsumer)
+      this.loggingConsumers.append(loggingConsumer)
       this
     }
 
@@ -319,7 +321,7 @@ object McpClient {
      *                         not be null.
      * @return This builder instance for method chaining
      */
-    def loggingConsumers(loggingConsumers: util.List[Consumer[McpSchema.LoggingMessageNotification]]): McpClient.SyncSpec = {
+    def loggingConsumers(loggingConsumers: List[Consumer[McpSchema.LoggingMessageNotification]]): McpClient.SyncSpec = {
       Assert.notNull(loggingConsumers, "Logging consumers must not be null")
       this.loggingConsumers.addAll(loggingConsumers)
       this
@@ -332,7 +334,7 @@ object McpClient {
      * @return a new instance of {@link McpSyncClient}.
      */
     def build: McpSyncClient = {
-      val syncFeatures = McpClientFeatures.Sync(this.clientInfo, this.capabilities, this.roots, this.toolsChangeConsumers, this.resourcesChangeConsumers, this.promptsChangeConsumers, this.loggingConsumers, this.samplingHandler)
+      val syncFeatures = McpClientFeatures.Sync(this.clientInfo, this.capabilities, this.roots, this.toolsChangeConsumers.toList, this.resourcesChangeConsumers.toList, this.promptsChangeConsumers.toList, this.loggingConsumers.toList, this.samplingHandler)
       val asyncFeatures = McpClientFeatures.Async.fromSync(syncFeatures)
       new McpSyncClient(new McpAsyncClient(transport, this.requestTimeout, asyncFeatures))
     }
@@ -359,11 +361,11 @@ object McpClient {
     private var requestTimeout = Duration.ofSeconds(20) // Default timeout
     private var capabilities: McpSchema.ClientCapabilities = null
     private var clientInfo = new McpSchema.Implementation("Spring AI MCP Client", "0.3.1")
-    final private val roots = new util.HashMap[String, McpSchema.Root]
-    final private val toolsChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Tool], Mono[Void]]]
-    final private val resourcesChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Resource], Mono[Void]]]
-    final private val promptsChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Prompt], Mono[Void]]]
-    final private val loggingConsumers = new util.ArrayList[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
+    final private val roots = new mutable.HashMap[String, McpSchema.Root]
+    final private val toolsChangeConsumers = new ListBuffer[Function[List[McpSchema.Tool], Mono[Void]]]
+    final private val resourcesChangeConsumers = new ListBuffer[Function[List[McpSchema.Resource], Mono[Void]]]
+    final private val promptsChangeConsumers = new ListBuffer[Function[List[McpSchema.Prompt], Mono[Void]]]
+    final private val loggingConsumers = new ListBuffer[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
     private var samplingHandler: Function[McpSchema.CreateMessageRequest, Mono[McpSchema.CreateMessageResult]] = null
 
     /**
@@ -422,10 +424,10 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if roots is null
      */
-    def roots(roots: util.List[McpSchema.Root]): McpClient.AsyncSpec = {
+    def roots(roots: List[McpSchema.Root]): McpClient.AsyncSpec = {
       Assert.notNull(roots, "Roots must not be null")
 //      import scala.collection.JavaConversions.*
-      for (root <- roots.asScala) {
+      for (root <- roots) {
         this.roots.put(root.uri, root)
       }
       this
@@ -474,9 +476,9 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if toolsChangeConsumer is null
      */
-    def toolsChangeConsumer(toolsChangeConsumer: Function[util.List[McpSchema.Tool], Mono[Void]]): McpClient.AsyncSpec = {
+    def toolsChangeConsumer(toolsChangeConsumer: Function[List[McpSchema.Tool], Mono[Void]]): McpClient.AsyncSpec = {
       Assert.notNull(toolsChangeConsumer, "Tools change consumer must not be null")
-      this.toolsChangeConsumers.add(toolsChangeConsumer)
+      this.toolsChangeConsumers.append(toolsChangeConsumer)
       this
     }
 
@@ -490,9 +492,9 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if resourcesChangeConsumer is null
      */
-    def resourcesChangeConsumer(resourcesChangeConsumer: Function[util.List[McpSchema.Resource], Mono[Void]]): McpClient.AsyncSpec = {
+    def resourcesChangeConsumer(resourcesChangeConsumer: Function[List[McpSchema.Resource], Mono[Void]]): McpClient.AsyncSpec = {
       Assert.notNull(resourcesChangeConsumer, "Resources change consumer must not be null")
-      this.resourcesChangeConsumers.add(resourcesChangeConsumer)
+      this.resourcesChangeConsumers.append(resourcesChangeConsumer)
       this
     }
 
@@ -506,9 +508,9 @@ object McpClient {
      * @return This builder instance for method chaining
      * @throws IllegalArgumentException if promptsChangeConsumer is null
      */
-    def promptsChangeConsumer(promptsChangeConsumer: Function[util.List[McpSchema.Prompt], Mono[Void]]): McpClient.AsyncSpec = {
+    def promptsChangeConsumer(promptsChangeConsumer: Function[List[McpSchema.Prompt], Mono[Void]]): McpClient.AsyncSpec = {
       Assert.notNull(promptsChangeConsumer, "Prompts change consumer must not be null")
-      this.promptsChangeConsumers.add(promptsChangeConsumer)
+      this.promptsChangeConsumers.append(promptsChangeConsumer)
       this
     }
 
@@ -523,7 +525,7 @@ object McpClient {
      */
     def loggingConsumer(loggingConsumer: Function[McpSchema.LoggingMessageNotification, Mono[Void]]): McpClient.AsyncSpec = {
       Assert.notNull(loggingConsumer, "Logging consumer must not be null")
-      this.loggingConsumers.add(loggingConsumer)
+      this.loggingConsumers.append(loggingConsumer)
       this
     }
 
@@ -536,7 +538,7 @@ object McpClient {
      *                         not be null.
      * @return This builder instance for method chaining
      */
-    def loggingConsumers(loggingConsumers: util.List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]): McpClient.AsyncSpec = {
+    def loggingConsumers(loggingConsumers: List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]): McpClient.AsyncSpec = {
       Assert.notNull(loggingConsumers, "Logging consumers must not be null")
       this.loggingConsumers.addAll(loggingConsumers)
       this
@@ -548,7 +550,7 @@ object McpClient {
      *
      * @return a new instance of {@link McpAsyncClient}.
      */
-    def build = new McpAsyncClient(this.transport, this.requestTimeout, new McpClientFeatures.Async(this.clientInfo, this.capabilities, this.roots, this.toolsChangeConsumers, this.resourcesChangeConsumers, this.promptsChangeConsumers, this.loggingConsumers, this.samplingHandler))
+    def build = new McpAsyncClient(this.transport, this.requestTimeout, new McpClientFeatures.Async(this.clientInfo, this.capabilities, this.roots, this.toolsChangeConsumers.toList, this.resourcesChangeConsumers.toList, this.promptsChangeConsumers.toList, this.loggingConsumers.toList, this.samplingHandler))
   }
 }
 

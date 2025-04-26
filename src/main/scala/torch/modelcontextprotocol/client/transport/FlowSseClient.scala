@@ -1,7 +1,7 @@
 /*
 * Copyright 2024 - 2024 the original author or authors.
 */
-package io.modelcontextprotocol.client.transport
+package torch.modelcontextprotocol.client.transport
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}

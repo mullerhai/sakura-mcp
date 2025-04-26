@@ -2,6 +2,25 @@
 <project version="4">
   <component name="ScalaCompilerConfiguration">
     <option name="separateProdTestSources" value="true" />
-    <profile name="sbt 1" modules="mcp,mcp.main,mcp.test" />
+    <profile name="sbt 1" modules="mcp" />
+    <profile name="sbt 2" modules="mcp.main,mcp.test">
+      <option name="deprecationWarnings" value="true" />
+      <option name="uncheckedWarnings" value="true" />
+      <option name="featureWarnings" value="true" />
+      <parameters>
+        <parameter value="-encoding" />
+        <parameter value="UTF-8" />
+        <parameter value="-Wunused:implicits" />
+        <parameter value="-Wunused:explicits" />
+        <parameter value="-Wunused:imports" />
+        <parameter value="-Wunused:locals" />
+        <parameter value="-Wunused:params" />
+        <parameter value="-Wunused:privates" />
+        <parameter value="-Wvalue-discard" />
+        <parameter value="-Ykind-projector:underscores" />
+        <parameter value="-java-output-version" />
+        <parameter value="8" />
+      </parameters>
+    </profile>
   </component>
 </project>

@@ -1,7 +1,7 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.util
+package torch.modelcontextprotocol.util
 
 import reactor.util.annotation.Nullable
 
@@ -24,7 +24,7 @@ object Assert {
    * @param message    the exception message to use if the assertion fails
    * @throws IllegalArgumentException if the collection is {@code null} or empty
    */
-  def notEmpty(@Nullable collection: util.Collection[_], message: String): Unit = {
+  def notEmpty(@Nullable collection: util.Collection[?], message: String): Unit = {
     if (collection == null || collection.isEmpty) throw new IllegalArgumentException(message)
   }
 
@@ -68,5 +68,5 @@ object Assert {
    *         greater than 0, and it does not contain whitespace only
    * @see Character#isWhitespace
    */
-  def hasText(@Nullable str: String): Boolean = str != null && !(str.isBlank)
+  def hasText(@Nullable str: String): Boolean = str != null && !(str.isEmpty)
 }

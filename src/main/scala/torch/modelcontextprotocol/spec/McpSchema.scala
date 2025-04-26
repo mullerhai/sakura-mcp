@@ -1,7 +1,7 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.spec
+package torch.modelcontextprotocol.spec
 
 import com.fasterxml.jackson.annotation.*
 import com.fasterxml.jackson.annotation.JsonTypeInfo.As
@@ -9,12 +9,12 @@ import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
 
 import java.io.IOException
-import java.util
+import scala.collection.mutable
 
 //type.TypeReference
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import org.slf4j.{Logger, LoggerFactory}
+import org.slf4j.LoggerFactory
 
 
 class McpSchema {
@@ -96,56 +96,8 @@ object McpSchema {
 
   trait Request {}
 
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  final case  class ListRootsResult(@JsonProperty("roots") roots: util.List[McpSchema.Root]) //{
+  private val MAP_TYPE_REF = new TypeReference[mutable.HashMap[String, AnyRef]]() {}
   
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  final private[spec] class JsonSchema private[spec](@JsonProperty("type") `type`: String, @JsonProperty("properties") properties: util.Map[String, AnyRef], @JsonProperty("required") required: util.List[String], @JsonProperty("additionalProperties") additionalProperties: Boolean)
-
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class Tool(@JsonProperty("name") name: String, @JsonProperty("description") description: String, @JsonProperty("inputSchema") inputSchema: McpSchema.JsonSchema)
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class ModelHint(@JsonProperty("name") name: String)
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class SamplingMessage(@JsonProperty("role") role: McpSchema.Role, @JsonProperty("content") content: McpSchema.Content) // {
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class ModelPreferences(@JsonProperty("hints") hints: util.List[McpSchema.ModelHint], @JsonProperty("costPriority") costPriority: Double, @JsonProperty("speedPriority") speedPriority: Double, @JsonProperty("intelligencePriority") intelligencePriority: Double)
-
-  @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
-  @JsonSubTypes(Array(new JsonSubTypes.Type(value = classOf[McpSchema.TextContent], name = "text"), new JsonSubTypes.Type(value = classOf[McpSchema.ImageContent], name = "image"), new JsonSubTypes.Type(value = classOf[McpSchema.EmbeddedResource], name = "resource")))
-  trait Content {
-    def `type`: String = {
-      if (this.isInstanceOf[McpSchema.TextContent]) return "text"
-      else if (this.isInstanceOf[McpSchema.ImageContent]) return "image"
-      else if (this.isInstanceOf[McpSchema.EmbeddedResource]) return "resource"
-      throw new IllegalArgumentException("Unknown content type: " + this)
-    }
-  }
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class TextContent(@JsonProperty("audience") audience: util.List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("text") text: String) extends McpSchema.Content
-
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class ImageContent(@JsonProperty("audience") audience: util.List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("data") data: String, @JsonProperty("mimeType") mimeType: String) extends McpSchema.Content
-
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class EmbeddedResource(@JsonProperty("audience") audience: util.List[McpSchema.Role],
-                                    @JsonProperty("priority") priority: Double,
-                                    @JsonProperty("resource") resource: McpSchema.ResourceContents) extends McpSchema.Content
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class Root(@JsonProperty("uri") uri: String, @JsonProperty("name") name: String)
-
-  private val MAP_TYPE_REF = new TypeReference[util.HashMap[String, AnyRef]]() {}
-
   /**
    * Deserializes a JSON string into a JSONRPCMessage object.
    *
@@ -162,11 +114,58 @@ object McpSchema {
     logger.debug("Received JSON message: {}", jsonText)
     val map = objectMapper.readValue(jsonText, MAP_TYPE_REF)
     // Determine message type based on specific JSON structure
-    if (map.containsKey("method") && map.containsKey("id")) return objectMapper.convertValue(map, classOf[McpSchema.JSONRPCRequest])
-    else if (map.containsKey("method") && !map.containsKey("id")) return objectMapper.convertValue(map, classOf[McpSchema.JSONRPCNotification])
-    else if (map.containsKey("result") || map.containsKey("error")) return objectMapper.convertValue(map, classOf[McpSchema.JSONRPCResponse])
+    if (map.contains("method") && map.contains("id")) return objectMapper.convertValue(map, classOf[McpSchema.JSONRPCRequest])
+    else if (map.contains("method") && !map.contains("id")) return objectMapper.convertValue(map, classOf[McpSchema.JSONRPCNotification])
+    else if (map.contains("result") || map.contains("error")) return objectMapper.convertValue(map, classOf[McpSchema.JSONRPCResponse])
     throw new IllegalArgumentException("Cannot deserialize JSONRPCMessage: " + jsonText)
   }
+
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class Tool(@JsonProperty("name") name: String, @JsonProperty("description") description: String, @JsonProperty("inputSchema") inputSchema: McpSchema.JsonSchema)
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class ModelHint(@JsonProperty("name") name: String)
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class SamplingMessage(@JsonProperty("role") role: McpSchema.Role, @JsonProperty("content") content: McpSchema.Content) // {
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class ListRootsResult(@JsonProperty("roots") roots: List[McpSchema.Root]) //{
+
+  @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+  @JsonSubTypes(Array(new JsonSubTypes.Type(value = classOf[McpSchema.TextContent], name = "text"), new JsonSubTypes.Type(value = classOf[McpSchema.ImageContent], name = "image"), new JsonSubTypes.Type(value = classOf[McpSchema.EmbeddedResource], name = "resource")))
+  trait Content {
+    def `type`: String = {
+      if (this.isInstanceOf[McpSchema.TextContent]) return "text"
+      else if (this.isInstanceOf[McpSchema.ImageContent]) return "image"
+      else if (this.isInstanceOf[McpSchema.EmbeddedResource]) return "resource"
+      throw new IllegalArgumentException("Unknown content type: " + this)
+    }
+  }
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class ModelPreferences(@JsonProperty("hints") hints: List[McpSchema.ModelHint], @JsonProperty("costPriority") costPriority: Double, @JsonProperty("speedPriority") speedPriority: Double, @JsonProperty("intelligencePriority") intelligencePriority: Double)
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class TextContent(@JsonProperty("audience") audience: List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("text") text: String) extends McpSchema.Content
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class ImageContent(@JsonProperty("audience") audience: List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("data") data: String, @JsonProperty("mimeType") mimeType: String) extends McpSchema.Content
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class Root(@JsonProperty("uri") uri: String, @JsonProperty("name") name: String)
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final case class EmbeddedResource(@JsonProperty("audience") audience: List[McpSchema.Role],
+                                    @JsonProperty("priority") priority: Double,
+                                    @JsonProperty("resource") resource: McpSchema.ResourceContents) extends McpSchema.Content
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case  class JSONRPCNotification(
+                                                                                      @JsonProperty("jsonrpc") jsonrpc: String, 
+                                                                                      @JsonProperty("method") method: String,
+                                                                                      @JsonProperty("params") params: Map[String, AnyRef]) extends McpSchema.JSONRPCMessage //{
 
   // ---------------------------
   // JSON-RPC Message Types
@@ -192,10 +191,9 @@ object McpSchema {
 //    // @formatter:on
 //  }
 
-  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case  class JSONRPCNotification(
-                                                                                      @JsonProperty("jsonrpc") jsonrpc: String, 
-                                                                                      @JsonProperty("method") method: String, 
-                                                                                      @JsonProperty("params") params: util.Map[String, AnyRef]) extends McpSchema.JSONRPCMessage //{
+  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ClientCapabilities(@JsonProperty("experimental") experimental: Map[String, AnyRef],
+                                                                              @JsonProperty("roots") roots: ClientCapabilities.RootCapabilities, 
+                                                                              @JsonProperty("sampling") sampling: ClientCapabilities.Sampling) // {
 //    this.jsonrpc = jsonrpc
 //    this.method = method
 //    this.params = params
@@ -267,78 +265,21 @@ object McpSchema {
 //    // @formatter:on
 //  }
 
+  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ServerCapabilities(@JsonProperty("experimental") experimental: mutable.Map[String, AnyRef], @JsonProperty("logging") logging: ServerCapabilities.LoggingCapabilities, @JsonProperty("prompts") prompts: ServerCapabilities.PromptCapabilities, @JsonProperty("resources") resources: ServerCapabilities.ResourceCapabilities, @JsonProperty("tools") tools: ServerCapabilities.ToolCapabilities)
+
   /**
-   * Clients can implement additional features to enrich connected MCP servers with
-   * additional capabilities. These capabilities can be used to extend the functionality
-   * of the server, or to provide additional information to the server about the
-   * client's capabilities.
+   * Optional annotations for the client. The client can use annotations to inform how
+   * objects are used or displayed.
    *
-   * @param experimental WIP
-   * @param roots        define the boundaries of where servers can operate within the
-   *                     filesystem, allowing them to understand which directories and files they have
-   *                     access to.
-   * @param sampling     Provides a standardized way for servers to request LLM sampling
-   *                     (“completions” or “generations”) from language models via clients.
-   *
+   * @param audience Describes who the intended customer of this object or data is. It
+   *                 can include multiple entries to indicate content useful for multiple audiences
+   *                 (e.g., `["user", "assistant"]`).
+   * @param priority Describes how important this data is for operating the server. A
+   *                 value of 1 means "most important," and indicates that the data is effectively
+   *                 required, while 0 means "least important," and indicates that the data is entirely
+   *                 optional. It is a number between 0 and 1.
    */
-  @JsonInclude(JsonInclude.Include.NON_ABSENT) object ClientCapabilities {
-    /**
-     * Roots define the boundaries of where servers can operate within the filesystem,
-     * allowing them to understand which directories and files they have access to.
-     * Servers can request the list of roots from supporting clients and
-     * receive notifications when that list changes.
-     *
-     * @param listChanged Whether the client would send notification about roots
-     *                    has changed since the last time the server checked.
-     */
-    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class RootCapabilities(@JsonProperty("listChanged") listChanged: Boolean) 
-//    {
-//      this.listChanged = listChanged
-//      @JsonProperty("listChanged") final private val listChanged = false
-//    }
-
-    /**
-     * Provides a standardized way for servers to request LLM
-     * sampling ("completions" or "generations") from language
-     * models via clients. This flow allows clients to maintain
-     * control over model access, selection, and permissions
-     * while enabling servers to leverage AI capabilities—with
-     * no server API keys necessary. Servers can request text or
-     * image-based interactions and optionally include context
-     * from MCP servers in their prompts.
-     */
-    @JsonInclude(JsonInclude.Include.NON_ABSENT) final class Sampling {
-    }
-
-    def builder = new ClientCapabilities.Builder
-
-    class Builder {
-      private var experimental: util.Map[String, AnyRef] = null
-      private var roots: ClientCapabilities.RootCapabilities = null
-      private var samplings: ClientCapabilities.Sampling = null
-
-      def experimental(experimental: util.Map[String, AnyRef]): ClientCapabilities.Builder = {
-        this.experimental = experimental
-        this
-      }
-
-      def roots(listChanged: Boolean): ClientCapabilities.Builder = {
-        this.roots = new ClientCapabilities.RootCapabilities(listChanged)
-        this
-      }
-
-      def sampling: ClientCapabilities.Builder = {
-        this.samplings= new ClientCapabilities.Sampling
-        this
-      }
-
-      def build = new McpSchema.ClientCapabilities(experimental, roots, samplings)
-    }
-  }
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ClientCapabilities(@JsonProperty("experimental") experimental: util.Map[String, AnyRef],
-                                                                              @JsonProperty("roots") roots: ClientCapabilities.RootCapabilities, 
-                                                                              @JsonProperty("sampling") sampling: ClientCapabilities.Sampling) // {
+  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class Annotations(@JsonProperty("audience") audience: List[McpSchema.Role], @JsonProperty("priority") priority: Double)
 //    this.experimental = experimental
 //    this.roots = roots
 //    this.sampling = sampling
@@ -348,69 +289,11 @@ object McpSchema {
 //    // @formatter:on
 //  }
 
-  @JsonInclude(JsonInclude.Include.NON_ABSENT) object ServerCapabilities {
-    @JsonInclude(JsonInclude.Include.NON_ABSENT) final  class LoggingCapabilities {
-    }
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  @JsonIgnoreProperties(ignoreUnknown = true) final case class ListResourcesResult(@JsonProperty("resources") resources: List[McpSchema.Resource], @JsonProperty("nextCursor") nextCursor: String) //{
 
-    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case  class PromptCapabilities(@JsonProperty("listChanged") listChanged: Boolean = false) //{
-//      this.listChanged = listChanged
-//      @JsonProperty("listChanged") final private val listChanged = false
-//    }
-
-    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ResourceCapabilities(@JsonProperty("subscribe") subscribe: Boolean = false,
-                                                                                  @JsonProperty("listChanged") listChanged: Boolean = false)
-   // {
-//      this.subscribe = subscribe
-//      this.listChanged = listChanged
-//      @JsonProperty("subscribe") final private val subscribe = false
-//      @JsonProperty("listChanged") final private val listChanged = false
-//    }
-
-    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ToolCapabilities(@JsonProperty("listChanged") listChanged: Boolean = false)
-//    {
-//      this.listChanged = listChanged
-//      @JsonProperty("listChanged") final private val listChanged = false
-//    }
-
-    def builder = new ServerCapabilities.Builder
-
-    class Builder {
-      private var experimental: util.Map[String, AnyRef] = null
-      private var loggings = new ServerCapabilities.LoggingCapabilities
-      private var prompts: ServerCapabilities.PromptCapabilities = null
-      private var resources: ServerCapabilities.ResourceCapabilities = null
-      private var tools: ServerCapabilities.ToolCapabilities = null
-
-      def experimental(experimental: util.Map[String, AnyRef]): ServerCapabilities.Builder = {
-        this.experimental = experimental
-        this
-      }
-
-      def logging: ServerCapabilities.Builder = {
-        this.loggings = new ServerCapabilities.LoggingCapabilities
-        this
-      }
-
-      def prompts(listChanged: Boolean): ServerCapabilities.Builder = {
-        this.prompts = new ServerCapabilities.PromptCapabilities(listChanged)
-        this
-      }
-
-      def resources(subscribe: Boolean, listChanged: Boolean): ServerCapabilities.Builder = {
-        this.resources = new ServerCapabilities.ResourceCapabilities(subscribe, listChanged)
-        this
-      }
-
-      def tools(listChanged: Boolean): ServerCapabilities.Builder = {
-        this.tools = new ServerCapabilities.ToolCapabilities(listChanged)
-        this
-      }
-
-      def build = new McpSchema.ServerCapabilities(experimental, loggings, prompts, resources, tools)
-    }
-  }
-
-  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ServerCapabilities(@JsonProperty("experimental") experimental: util.Map[String, AnyRef], @JsonProperty("logging") logging: ServerCapabilities.LoggingCapabilities, @JsonProperty("prompts") prompts: ServerCapabilities.PromptCapabilities, @JsonProperty("resources") resources: ServerCapabilities.ResourceCapabilities, @JsonProperty("tools") tools: ServerCapabilities.ToolCapabilities)
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  @JsonIgnoreProperties(ignoreUnknown = true) final case class ListResourceTemplatesResult(@JsonProperty("resourceTemplates") resourceTemplates: List[McpSchema.ResourceTemplate], @JsonProperty("nextCursor") nextCursor: String) // {
 //  {
 //    this.experimental = experimental
 //    this.logging = logging
@@ -454,19 +337,8 @@ object McpSchema {
     def annotations: McpSchema.Annotations
   }
 
-  /**
-   * Optional annotations for the client. The client can use annotations to inform how
-   * objects are used or displayed.
-   *
-   * @param audience Describes who the intended customer of this object or data is. It
-   *                 can include multiple entries to indicate content useful for multiple audiences
-   *                 (e.g., `["user", "assistant"]`).
-   * @param priority Describes how important this data is for operating the server. A
-   *                 value of 1 means "most important," and indicates that the data is effectively
-   *                 required, while 0 means "least important," and indicates that the data is entirely
-   *                 optional. It is a number between 0 and 1.
-   */
-  @JsonInclude(JsonInclude.Include.NON_ABSENT) final case  class Annotations(@JsonProperty("audience") audience: util.List[McpSchema.Role], @JsonProperty("priority") priority: Double)
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  @JsonIgnoreProperties(ignoreUnknown = true) final case class ReadResourceResult(@JsonProperty("contents") contents: List[McpSchema.ResourceContents]) // {
   //{
 //    this.audience = audience
 //    this.priority = priority
@@ -535,8 +407,18 @@ object McpSchema {
     // @formatter:on
 //  }
 
+  /**
+   * A prompt or prompt template that the server offers.
+   *
+   * @param name        The name of the prompt or prompt template.
+   * @param description An optional description of what this prompt provides.
+   * @param arguments   A list of arguments to use for templating the prompt.
+   */
+  // ---------------------------
+  // Prompt Interfaces
+  // ---------------------------
   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  @JsonIgnoreProperties(ignoreUnknown = true) final case  class ListResourcesResult(@JsonProperty("resources") resources: util.List[McpSchema.Resource], @JsonProperty("nextCursor") nextCursor: String) //{
+  final case class Prompt(@JsonProperty("name") name: String, @JsonProperty("description") description: String, @JsonProperty("arguments") arguments: List[McpSchema.PromptArgument]) //{
 //    this.resources = resources
 //    this.nextCursor = nextCursor
 //    @JsonProperty("resources") final private val resources = null
@@ -544,8 +426,16 @@ object McpSchema {
     // @formatter:on
  // }
 
+  /**
+   * The server's response to a prompts/list request from the client.
+   *
+   * @param prompts    A list of prompts that the server provides.
+   * @param nextCursor An optional cursor for pagination. If present, indicates there
+   *                   are more prompts available.
+   */
   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  @JsonIgnoreProperties(ignoreUnknown = true) final case class ListResourceTemplatesResult(@JsonProperty("resourceTemplates") resourceTemplates: util.List[McpSchema.ResourceTemplate], @JsonProperty("nextCursor") nextCursor: String) // {
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class ListPromptsResult(@JsonProperty("prompts") prompts: List[McpSchema.Prompt], @JsonProperty("nextCursor") nextCursor: String)
 //    this.resourceTemplates = resourceTemplates
 //    this.nextCursor = nextCursor
 //    @JsonProperty("resourceTemplates") final private val resourceTemplates = null
@@ -559,8 +449,14 @@ object McpSchema {
     // @formatter:on
   //}
 
+  /**
+   * Used by the client to get a prompt provided by the server.
+   *
+   * @param name      The name of the prompt or prompt template.
+   * @param arguments Arguments to use for templating the prompt.
+   */
   @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  @JsonIgnoreProperties(ignoreUnknown = true) final case  class ReadResourceResult(@JsonProperty("contents") contents: util.List[McpSchema.ResourceContents]) // {
+  final case class GetPromptRequest(@JsonProperty("name") name: String, @JsonProperty("arguments") arguments: Map[String, AnyRef]) extends McpSchema.Request // {
 //    this.contents = contents
 //    @JsonProperty("contents") final private val contents = null
     // @formatter:on
@@ -647,18 +543,14 @@ object McpSchema {
     // @formatter:on
 //  }
 
-  /**
-   * A prompt or prompt template that the server offers.
-   *
-   * @param name        The name of the prompt or prompt template.
-   * @param description An optional description of what this prompt provides.
-   * @param arguments   A list of arguments to use for templating the prompt.
-   */
-  // ---------------------------
-  // Prompt Interfaces
-  // ---------------------------
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case class Prompt(@JsonProperty("name") name: String, @JsonProperty("description") description: String, @JsonProperty("arguments") arguments: util.List[McpSchema.PromptArgument]) //{
+/**
+	 * The server's response to a prompts/get request from the client.
+	 *
+	 * @param description An optional description for the prompt.
+	 * @param messages A list of messages to display as part of the prompt.
+	 */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+@JsonIgnoreProperties(ignoreUnknown = true)  final case  class GetPromptResult  (@JsonProperty("description")  description: String, @JsonProperty("messages")  messages: List[McpSchema.PromptMessage]) //{
 //    this.name = name
 //    this.description = description
 //    this.arguments = arguments
@@ -706,54 +598,6 @@ object McpSchema {
  // }
 
   /**
-   * The server's response to a prompts/list request from the client.
-   *
-   * @param prompts    A list of prompts that the server provides.
-   * @param nextCursor An optional cursor for pagination. If present, indicates there
-   *                   are more prompts available.
-   */
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  final case class ListPromptsResult(@JsonProperty("prompts") prompts: util.List[McpSchema.Prompt], @JsonProperty("nextCursor") nextCursor: String)
-  //{
-//    this.prompts = prompts
-//    this.nextCursor = nextCursor
-//    @JsonProperty("prompts") final private val prompts = null
-//    @JsonProperty("nextCursor") final private val nextCursor = null
-    // @formatter:on
- // }
-
-  /**
-   * Used by the client to get a prompt provided by the server.
-   *
-   * @param name      The name of the prompt or prompt template.
-   * @param arguments Arguments to use for templating the prompt.
-   */
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final case  class GetPromptRequest(@JsonProperty("name") name: String, @JsonProperty("arguments") arguments: util.Map[String, AnyRef]) extends McpSchema.Request // {
-//    this.name = name
-//    this.arguments = arguments
-//    @JsonProperty("name") final private val name = null
-//    @JsonProperty("arguments") final private val arguments = null
-    // @formatter:off
-//}
-/**
-	 * The server's response to a prompts/get request from the client.
-	 *
-	 * @param description An optional description for the prompt.
-	 * @param messages A list of messages to display as part of the prompt.
-	 */
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-@JsonIgnoreProperties(ignoreUnknown = true)  final case  class GetPromptResult  (@JsonProperty("description")  description: String, @JsonProperty("messages")  messages: util.List[McpSchema.PromptMessage]) //{
-//  this.description = description
-//}
-//this.messages = messages
-//@JsonProperty("description")  final private val description  = null
-//@JsonProperty("messages")  final private val messages  = null
-// @formatter:on
-//}
-
-  /**
    * The server's response to a tools/list request from the client.
    *
    * @param tools      A list of tools that the server provides.
@@ -765,7 +609,60 @@ object McpSchema {
   // ---------------------------
   @JsonInclude(JsonInclude.Include.NON_ABSENT)
   @JsonIgnoreProperties(ignoreUnknown = true)
-  final case  class ListToolsResult(@JsonProperty("tools") tools: util.List[McpSchema.Tool], @JsonProperty("nextCursor") nextCursor: String) // {
+  final case class ListToolsResult(@JsonProperty("tools") tools: List[McpSchema.Tool], @JsonProperty("nextCursor") nextCursor: String) // {
+  //{
+//    this.prompts = prompts
+//    this.nextCursor = nextCursor
+//    @JsonProperty("prompts") final private val prompts = null
+//    @JsonProperty("nextCursor") final private val nextCursor = null
+    // @formatter:on
+ // }
+
+  /**
+   * Used by the client to call a tool provided by the server.
+   *
+   * @param name      The name of the tool to call. This must match a tool name from
+   *                  tools/list.
+   * @param arguments Arguments to pass to the tool. These must conform to the tool's
+   *                  input schema.
+   */
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  final case class CallToolRequest(@JsonProperty("name") name: String, @JsonProperty("arguments") arguments: Map[String, AnyRef]) extends McpSchema.Request
+//    this.name = name
+//    this.arguments = arguments
+//    @JsonProperty("name") final private val name = null
+//    @JsonProperty("arguments") final private val arguments = null
+    // @formatter:off
+//}
+
+/**
+	 * The server's response to a tools/call request from the client.
+	 *
+	 * @param content A list of content items representing the tool's output. Each item can be text, an image,
+	 *                or an embedded resource.
+	 * @param isError If true, indicates that the tool execution failed and the content contains error information.
+	 *                If false or absent, indicates successful execution.
+	 */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)  @JsonIgnoreProperties(ignoreUnknown = true)
+final case class CallToolResult  (@JsonProperty("content")  content: List[McpSchema.Content], @JsonProperty("isError")  isError: Boolean) // {
+//  this.description = description
+//}
+//this.messages = messages
+//@JsonProperty("description")  final private val description  = null
+//@JsonProperty("messages")  final private val messages  = null
+// @formatter:on
+//}
+
+  @JsonInclude(JsonInclude.Include.NON_ABSENT)
+  final class CreateMessageRequest(@JsonProperty("messages") messages: List[McpSchema.SamplingMessage],
+                                        @JsonProperty("modelPreferences") modelPreferences: McpSchema.ModelPreferences,
+                                        @JsonProperty("systemPrompt") systemPrompt: String,
+                                        @JsonProperty("includeContext") includeContext: CreateMessageRequest.ContextInclusionStrategy,
+                                        @JsonProperty("temperature") temperature: Double,
+                                        @JsonProperty("maxTokens") maxTokens: Int,
+                                   @JsonProperty("stopSequences") stopSequences: List[String],
+                                   @JsonProperty("metadata") metadata: Map[String, AnyRef]) extends McpSchema.Request
 //    this.tools = tools
 //    this.nextCursor = nextCursor
 //    @JsonProperty("tools") final private val tools = null
@@ -775,7 +672,7 @@ object McpSchema {
 
 //  @JsonInclude(JsonInclude.Include.NON_ABSENT)
 //  @JsonIgnoreProperties(ignoreUnknown = true)
-//  final private[spec] class JsonSchema private[spec](@JsonProperty("type") `type`: String, @JsonProperty("properties") properties: util.Map[String, AnyRef], @JsonProperty("required") required: util.List[String], @JsonProperty("additionalProperties") additionalProperties: Boolean) // {
+  //  final private[spec] class JsonSchema private[spec](@JsonProperty("type") `type`: String, @JsonProperty("properties") properties: mutable.map[String, AnyRef], @JsonProperty("required") required: List[String], @JsonProperty("additionalProperties") additionalProperties: Boolean) // {
 
 //    this.`type` = `type`
 //    this.properties = properties
@@ -825,17 +722,9 @@ object McpSchema {
           throw new IllegalArgumentException("Invalid schema: " + schema, e)
       }
 
-  /**
-   * Used by the client to call a tool provided by the server.
-   *
-   * @param name      The name of the tool to call. This must match a tool name from
-   *                  tools/list.
-   * @param arguments Arguments to pass to the tool. These must conform to the tool's
-   *                  input schema.
-   */
   @JsonInclude(JsonInclude.Include.NON_ABSENT)
   @JsonIgnoreProperties(ignoreUnknown = true)
-  final case class CallToolRequest(@JsonProperty("name") name: String, @JsonProperty("arguments") arguments: util.Map[String, AnyRef]) extends McpSchema.Request
+  final private[spec] class JsonSchema private[spec](@JsonProperty("type") `type`: String, @JsonProperty("properties") properties: Map[String, AnyRef], @JsonProperty("required") required: List[String], @JsonProperty("additionalProperties") additionalProperties: Boolean)
   //{
 //    this.name = name
 //    this.arguments = arguments
@@ -843,16 +732,75 @@ object McpSchema {
 //    @JsonProperty("arguments") final private val arguments = null
     // @formatter:off
 //}
-/**
-	 * The server's response to a tools/call request from the client.
-	 *
-	 * @param content A list of content items representing the tool's output. Each item can be text, an image,
-	 *                or an embedded resource.
-	 * @param isError If true, indicates that the tool execution failed and the content contains error information.
-	 *                If false or absent, indicates successful execution.
-	 */
-@JsonInclude(JsonInclude.Include.NON_ABSENT)  @JsonIgnoreProperties(ignoreUnknown = true)
-final case class CallToolResult  (@JsonProperty("content")  content: util.List[McpSchema.Content], @JsonProperty("isError")  isError: Boolean) // {
+
+  /**
+   * Clients can implement additional features to enrich connected MCP servers with
+   * additional capabilities. These capabilities can be used to extend the functionality
+   * of the server, or to provide additional information to the server about the
+   * client's capabilities.
+   *
+   * @param experimental WIP
+   * @param roots        define the boundaries of where servers can operate within the
+   *                     filesystem, allowing them to understand which directories and files they have
+   *                     access to.
+   * @param sampling     Provides a standardized way for servers to request LLM sampling
+   *                     (“completions” or “generations”) from language models via clients.
+   *
+   */
+  @JsonInclude(JsonInclude.Include.NON_ABSENT) object ClientCapabilities {
+    /**
+     * Roots define the boundaries of where servers can operate within the filesystem,
+     * allowing them to understand which directories and files they have access to.
+     * Servers can request the list of roots from supporting clients and
+     * receive notifications when that list changes.
+     *
+     * @param listChanged Whether the client would send notification about roots
+     *                    has changed since the last time the server checked.
+     */
+    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class RootCapabilities(@JsonProperty("listChanged") listChanged: Boolean) 
+//    {
+//      this.listChanged = listChanged
+//      @JsonProperty("listChanged") final private val listChanged = false
+//    }
+
+    /**
+     * Provides a standardized way for servers to request LLM
+     * sampling ("completions" or "generations") from language
+     * models via clients. This flow allows clients to maintain
+     * control over model access, selection, and permissions
+     * while enabling servers to leverage AI capabilities—with
+     * no server API keys necessary. Servers can request text or
+     * image-based interactions and optionally include context
+     * from MCP servers in their prompts.
+     */
+    @JsonInclude(JsonInclude.Include.NON_ABSENT) final class Sampling {
+    }
+
+    def builder = new ClientCapabilities.Builder
+
+    class Builder {
+      private var experimental: mutable.Map[String, AnyRef] = null
+      private var roots: ClientCapabilities.RootCapabilities = null
+      private var samplings: ClientCapabilities.Sampling = null
+
+      def experimental(experimental: Map[String, AnyRef]): ClientCapabilities.Builder = {
+        this.experimental.addAll(experimental)
+        this
+      }
+
+      def roots(listChanged: Boolean): ClientCapabilities.Builder = {
+        this.roots = new ClientCapabilities.RootCapabilities(listChanged)
+        this
+      }
+
+      def sampling: ClientCapabilities.Builder = {
+        this.samplings= new ClientCapabilities.Sampling
+        this
+      }
+
+      def build = new McpSchema.ClientCapabilities(experimental.toMap, roots, samplings)
+    }
+  }
 //  this.content = content
 //this.isError = isError
 //@JsonProperty("content")  final private val content  = null
@@ -864,7 +812,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
   // Sampling Interfaces
   // ---------------------------
 //  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-//  final case  class ModelPreferences(@JsonProperty("hints") hints: util.List[McpSchema.ModelHint], @JsonProperty("costPriority") costPriority: Double, @JsonProperty("speedPriority") speedPriority: Double, @JsonProperty("intelligencePriority") intelligencePriority: Double)
+  //  final case  class ModelPreferences(@JsonProperty("hints") hints: List[McpSchema.ModelHint], @JsonProperty("costPriority") costPriority: Double, @JsonProperty("speedPriority") speedPriority: Double, @JsonProperty("intelligencePriority") intelligencePriority: Double)
 //
   //{
 //    this.hints = hints
@@ -903,15 +851,67 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
 //    }
   }
 
-  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-  final class CreateMessageRequest(@JsonProperty("messages") messages: util.List[McpSchema.SamplingMessage],
-                                        @JsonProperty("modelPreferences") modelPreferences: McpSchema.ModelPreferences,
-                                        @JsonProperty("systemPrompt") systemPrompt: String,
-                                        @JsonProperty("includeContext") includeContext: CreateMessageRequest.ContextInclusionStrategy,
-                                        @JsonProperty("temperature") temperature: Double,
-                                        @JsonProperty("maxTokens") maxTokens: Int,
-                                        @JsonProperty("stopSequences") stopSequences: util.List[String],
-                                        @JsonProperty("metadata") metadata: util.Map[String, AnyRef]) extends McpSchema.Request
+  @JsonInclude(JsonInclude.Include.NON_ABSENT) object ServerCapabilities {
+    @JsonInclude(JsonInclude.Include.NON_ABSENT) final  class LoggingCapabilities {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case  class PromptCapabilities(@JsonProperty("listChanged") listChanged: Boolean = false) //{
+//      this.listChanged = listChanged
+//      @JsonProperty("listChanged") final private val listChanged = false
+//    }
+
+    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ResourceCapabilities(@JsonProperty("subscribe") subscribe: Boolean = false,
+                                                                                  @JsonProperty("listChanged") listChanged: Boolean = false)
+   // {
+//      this.subscribe = subscribe
+//      this.listChanged = listChanged
+//      @JsonProperty("subscribe") final private val subscribe = false
+//      @JsonProperty("listChanged") final private val listChanged = false
+//    }
+
+    @JsonInclude(JsonInclude.Include.NON_ABSENT) final case class ToolCapabilities(@JsonProperty("listChanged") listChanged: Boolean = false)
+//    {
+//      this.listChanged = listChanged
+//      @JsonProperty("listChanged") final private val listChanged = false
+//    }
+
+    def builder = new ServerCapabilities.Builder
+
+    class Builder {
+      private var experimental: mutable.Map[String, AnyRef] = null
+      private var loggings = new ServerCapabilities.LoggingCapabilities
+      private var prompts: ServerCapabilities.PromptCapabilities = null
+      private var resources: ServerCapabilities.ResourceCapabilities = null
+      private var tools: ServerCapabilities.ToolCapabilities = null
+
+      def experimental(experimental: mutable.Map[String, AnyRef]): ServerCapabilities.Builder = {
+        this.experimental = experimental
+        this
+      }
+
+      def logging: ServerCapabilities.Builder = {
+        this.loggings = new ServerCapabilities.LoggingCapabilities
+        this
+      }
+
+      def prompts(listChanged: Boolean): ServerCapabilities.Builder = {
+        this.prompts = new ServerCapabilities.PromptCapabilities(listChanged)
+        this
+      }
+
+      def resources(subscribe: Boolean, listChanged: Boolean): ServerCapabilities.Builder = {
+        this.resources = new ServerCapabilities.ResourceCapabilities(subscribe, listChanged)
+        this
+      }
+
+      def tools(listChanged: Boolean): ServerCapabilities.Builder = {
+        this.tools = new ServerCapabilities.ToolCapabilities(listChanged)
+        this
+      }
+
+      def build = new McpSchema.ServerCapabilities(experimental, loggings, prompts, resources, tools)
+    }
+  }
 //{
 //    this.messages = messages
 //    this.modelPreferences = modelPreferences
@@ -971,7 +971,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
       }
 
 //      @JsonInclude(JsonInclude.Include.NON_ABSENT)
-//      final case class TextContent(@JsonProperty("audience") audience: util.List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("text") text: String) extends McpSchema.Content
+      //      final case class TextContent(@JsonProperty("audience") audience: List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("text") text: String) extends McpSchema.Content
 
       def message(message: String): CreateMessageResult.Builder = {
         this.content = new McpSchema.TextContent(null,0,message)
@@ -1134,7 +1134,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
  // }
 
   object CompleteResult {
-    final case class CompleteCompletion(@JsonProperty("values") values: util.List[String],
+    final case class CompleteCompletion(@JsonProperty("values") values: List[String],
                                    @JsonProperty("total") total: Integer,
                                    @JsonProperty("hasMore") hasMore: Boolean)  //{
 //      this.values = values
@@ -1167,7 +1167,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
 //  }
 //
 //  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-//  final case class TextContent(@JsonProperty("audience") audience: util.List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("text") text: String) extends McpSchema.Content
+//  final case class TextContent(@JsonProperty("audience") audience: List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("text") text: String) extends McpSchema.Content
 //  //// {
 ////    this.audience = audience
 ////    this.priority = priority
@@ -1183,7 +1183,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
 //  //}
 //
 //  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-//  final case  class ImageContent(@JsonProperty("audience") audience: util.List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("data") data: String, @JsonProperty("mimeType") mimeType: String) extends McpSchema.Content
+//  final case  class ImageContent(@JsonProperty("audience") audience: List[McpSchema.Role], @JsonProperty("priority") priority: Double, @JsonProperty("data") data: String, @JsonProperty("mimeType") mimeType: String) extends McpSchema.Content
 //  //{
 ////    this.audience = audience
 ////    this.priority = priority
@@ -1197,7 +1197,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
 //  //}
 //
 //  @JsonInclude(JsonInclude.Include.NON_ABSENT)
-//  final case  class EmbeddedResource(@JsonProperty("audience") audience: util.List[McpSchema.Role],
+//  final case  class EmbeddedResource(@JsonProperty("audience") audience: List[McpSchema.Role],
 //                                     @JsonProperty("priority") priority: Double,
 //                                     @JsonProperty("resource") resource: McpSchema.ResourceContents) extends McpSchema.Content //{
 //    this.audience = audience
@@ -1242,7 +1242,7 @@ final case class CallToolResult  (@JsonProperty("content")  content: util.List[M
    */
 //  @JsonInclude(JsonInclude.Include.NON_ABSENT)
 //  @JsonIgnoreProperties(ignoreUnknown = true)
-//  final case  class ListRootsResult(@JsonProperty("roots") roots: util.List[McpSchema.Root]) //{
+//  final case  class ListRootsResult(@JsonProperty("roots") roots: List[McpSchema.Root]) //{
 
 
 //    this.roots = roots

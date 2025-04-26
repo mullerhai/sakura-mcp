@@ -1,16 +1,17 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.client
+package torch.modelcontextprotocol.client
 
-import io.modelcontextprotocol.spec.McpSchema
-import io.modelcontextprotocol.util.{Assert, Utils}
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import scala.jdk.CollectionConverters._
+import torch.modelcontextprotocol.spec.McpSchema
+
 import java.util
-import java.util.concurrent.ConcurrentHashMap
-import java.util.function.{Consumer, Function}
+import java.util.function.Consumer
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters.*
 
 /**
  * Representation of features and capabilities for Model Context Protocol (MCP) clients.
@@ -41,6 +42,24 @@ import java.util.function.{Consumer, Function}
  * @see McpSchema.ClientCapabilities
  */
 object McpClientFeatures {
+  final case  class Sync(clientInfo: McpSchema.Implementation,
+                         clientCapabilities: McpSchema.ClientCapabilities,
+                         roots: mutable.Map[String, McpSchema.Root],
+                         toolsChangeConsumers: List[Consumer[List[McpSchema.Tool]]],
+                         resourcesChangeConsumers: List[Consumer[List[McpSchema.Resource]]],
+                         promptsChangeConsumers: List[Consumer[List[McpSchema.Prompt]]],
+                         loggingConsumers: List[Consumer[McpSchema.LoggingMessageNotification]],
+                         samplingHandler: Function[McpSchema.CreateMessageRequest, McpSchema.CreateMessageResult])
+
+  final case  class Async(clientInfo: McpSchema.Implementation, 
+                                    clientCapabilities: McpSchema.ClientCapabilities,
+                          roots: mutable.Map[String, McpSchema.Root],
+                          toolsChangeConsumers: List[Function[List[McpSchema.Tool], Mono[Void]]],
+                          resourcesChangeConsumers: List[Function[List[McpSchema.Resource], Mono[Void]]],
+                          promptsChangeConsumers: List[Function[List[McpSchema.Prompt], Mono[Void]]],
+                          loggingConsumers: List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]],
+                                    samplingHandler: Function[McpSchema.CreateMessageRequest, Mono[McpSchema.CreateMessageResult]]) 
+  
   /**
    * Asynchronous client features specification providing the capabilities and request
    * and notification handlers.
@@ -65,49 +84,31 @@ object McpClientFeatures {
      *         user.
      */
       def fromSync(syncSpec: McpClientFeatures.Sync): McpClientFeatures.Async = {
-        val toolsChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Tool], Mono[Void]]]
+        val toolsChangeConsumers = new ListBuffer[Function[List[McpSchema.Tool], Mono[Void]]]
 //        import scala.collection.JavaConversions.*
-        for (consumer <- syncSpec.toolsChangeConsumers.asScala) {
-          toolsChangeConsumers.add((t: util.List[McpSchema.Tool]) => Mono.fromRunnable[Void](() => consumer.accept(t)).subscribeOn(Schedulers.boundedElastic))
+        for (consumer <- syncSpec.toolsChangeConsumers) {
+          toolsChangeConsumers.append((t: List[McpSchema.Tool]) => Mono.fromRunnable[Void](() => consumer.accept(t)).subscribeOn(Schedulers.boundedElastic))
         }
-        val resourcesChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Resource], Mono[Void]]]
+        val resourcesChangeConsumers = new ListBuffer[Function[List[McpSchema.Resource], Mono[Void]]]
 //        import scala.collection.JavaConversions.*
-        for (consumer <- syncSpec.resourcesChangeConsumers.asScala) {
-          resourcesChangeConsumers.add((r: util.List[McpSchema.Resource]) => Mono.fromRunnable[Void](() => consumer.accept(r)).subscribeOn(Schedulers.boundedElastic))
+        for (consumer <- syncSpec.resourcesChangeConsumers) {
+          resourcesChangeConsumers.append((r: List[McpSchema.Resource]) => Mono.fromRunnable[Void](() => consumer.accept(r)).subscribeOn(Schedulers.boundedElastic))
         }
-        val promptsChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Prompt], Mono[Void]]]
+        val promptsChangeConsumers = new ListBuffer[Function[List[McpSchema.Prompt], Mono[Void]]]
 //        import scala.collection.JavaConversions.*
-        for (consumer <- syncSpec.promptsChangeConsumers.asScala) {
-          promptsChangeConsumers.add((p: util.List[McpSchema.Prompt]) => Mono.fromRunnable[Void](() => consumer.accept(p)).subscribeOn(Schedulers.boundedElastic))
+        for (consumer <- syncSpec.promptsChangeConsumers) {
+          promptsChangeConsumers.append((p: List[McpSchema.Prompt]) => Mono.fromRunnable[Void](() => consumer.accept(p)).subscribeOn(Schedulers.boundedElastic))
         }
-        val loggingConsumers = new util.ArrayList[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
+        val loggingConsumers = new ListBuffer[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
 //        import scala.collection.JavaConversions.*
-        for (consumer <- syncSpec.loggingConsumers.asScala) {
-          loggingConsumers.add((l: McpSchema.LoggingMessageNotification) => Mono.fromRunnable[Void](() => consumer.accept(l)).subscribeOn(Schedulers.boundedElastic))
+        for (consumer <- syncSpec.loggingConsumers) {
+          loggingConsumers.append((l: McpSchema.LoggingMessageNotification) => Mono.fromRunnable[Void](() => consumer.accept(l)).subscribeOn(Schedulers.boundedElastic))
         }
-        import scala.jdk.FunctionConverters._
         def samplingHandler:Function[McpSchema.CreateMessageRequest, Mono[McpSchema.CreateMessageResult]] = (r: McpSchema.CreateMessageRequest) => Mono.fromCallable(() => syncSpec.samplingHandler.apply(r)).subscribeOn(Schedulers.boundedElastic)
-        new McpClientFeatures.Async(syncSpec.clientInfo, syncSpec.clientCapabilities, syncSpec.roots, toolsChangeConsumers, resourcesChangeConsumers, promptsChangeConsumers, loggingConsumers, samplingHandler)
+
+        new McpClientFeatures.Async(syncSpec.clientInfo, syncSpec.clientCapabilities, syncSpec.roots, toolsChangeConsumers.toList, resourcesChangeConsumers.toList, promptsChangeConsumers.toList, loggingConsumers.toList, samplingHandler)
       }
   }
-
-  final case  class Sync(clientInfo: McpSchema.Implementation,
-                         clientCapabilities: McpSchema.ClientCapabilities,
-                         roots: util.Map[String, McpSchema.Root],
-                         toolsChangeConsumers: util.List[Consumer[util.List[McpSchema.Tool]]],
-                         resourcesChangeConsumers: util.List[Consumer[util.List[McpSchema.Resource]]],
-                         promptsChangeConsumers: util.List[Consumer[util.List[McpSchema.Prompt]]],
-                         loggingConsumers: util.List[Consumer[McpSchema.LoggingMessageNotification]],
-                         samplingHandler: Function[McpSchema.CreateMessageRequest, McpSchema.CreateMessageResult])
-  
-  final case  class Async(clientInfo: McpSchema.Implementation, 
-                                    clientCapabilities: McpSchema.ClientCapabilities, 
-                                    roots: util.Map[String, McpSchema.Root], 
-                                    toolsChangeConsumers: util.List[Function[util.List[McpSchema.Tool], Mono[Void]]],
-                                    resourcesChangeConsumers: util.List[Function[util.List[McpSchema.Resource], Mono[Void]]],
-                                    promptsChangeConsumers: util.List[Function[util.List[McpSchema.Prompt], Mono[Void]]],
-                                    loggingConsumers: util.List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]],
-                                    samplingHandler: Function[McpSchema.CreateMessageRequest, Mono[McpSchema.CreateMessageResult]]) 
   /**
    * Create an instance and validate the arguments.
    *
@@ -127,19 +128,19 @@ object McpClientFeatures {
 //    this.roots = if (roots != null) new ConcurrentHashMap[String, McpSchema.Root](roots)
 //    else new ConcurrentHashMap[String, McpSchema.Root]
 //    this.toolsChangeConsumers = if (toolsChangeConsumers != null) toolsChangeConsumers
-//    else util.List.of
+  //    else List.of
 //    this.resourcesChangeConsumers = if (resourcesChangeConsumers != null) resourcesChangeConsumers
-//    else util.List.of
+  //    else List.of
 //    this.promptsChangeConsumers = if (promptsChangeConsumers != null) promptsChangeConsumers
-//    else util.List.of
+  //    else List.of
 //    this.loggingConsumers = if (loggingConsumers != null) loggingConsumers
-//    else util.List.of
+  //    else List.of
 //    final private var clientCapabilities: McpSchema.ClientCapabilities = null
-//    final private var roots: util.Map[String, McpSchema.Root] = null
-//    final private var toolsChangeConsumers: util.List[Function[util.List[McpSchema.Tool], Mono[Void]]] = null
-//    final private var resourcesChangeConsumers: util.List[Function[util.List[McpSchema.Resource], Mono[Void]]] = null
-//    final private var promptsChangeConsumers: util.List[Function[util.List[McpSchema.Prompt], Mono[Void]]] = null
-//    final private var loggingConsumers: util.List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]] = null
+  //    final private var roots: mutable.map[String, McpSchema.Root] = null
+  //    final private var toolsChangeConsumers: List[Function[List[McpSchema.Tool], Mono[Void]]] = null
+  //    final private var resourcesChangeConsumers: List[Function[List[McpSchema.Resource], Mono[Void]]] = null
+  //    final private var promptsChangeConsumers: List[Function[List[McpSchema.Prompt], Mono[Void]]] = null
+  //    final private var loggingConsumers: List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]] = null
  // }
 
   /**
@@ -157,11 +158,11 @@ object McpClientFeatures {
    */
 //  final case  class Sync(clientInfo: McpSchema.Implementation, 
 //                   clientCapabilities: McpSchema.ClientCapabilities,
-//                   roots: util.Map[String, McpSchema.Root],
-//                   toolsChangeConsumers: util.List[Consumer[util.List[McpSchema.Tool]]], 
-//                   resourcesChangeConsumers: util.List[Consumer[util.List[McpSchema.Resource]]], 
-//                   promptsChangeConsumers: util.List[Consumer[util.List[McpSchema.Prompt]]], 
-//                   loggingConsumers: util.List[Consumer[McpSchema.LoggingMessageNotification]],
+  //                   roots: mutable.map[String, McpSchema.Root],
+  //                   toolsChangeConsumers: List[Consumer[List[McpSchema.Tool]]],
+  //                   resourcesChangeConsumers: List[Consumer[List[McpSchema.Resource]]],
+  //                   promptsChangeConsumers: List[Consumer[List[McpSchema.Prompt]]],
+  //                   loggingConsumers: List[Consumer[McpSchema.LoggingMessageNotification]],
 //                   private val samplingHandler: Function[McpSchema.CreateMessageRequest, McpSchema.CreateMessageResult])
 
   /**
@@ -184,18 +185,18 @@ object McpClientFeatures {
 //    this.roots = if (roots != null) new util.HashMap[String, McpSchema.Root](roots)
 //    else new util.HashMap[String, McpSchema.Root]
 //    this.toolsChangeConsumers = if (toolsChangeConsumers != null) toolsChangeConsumers
-//    else util.List.of
+  //    else List.of
 //    this.resourcesChangeConsumers = if (resourcesChangeConsumers != null) resourcesChangeConsumers
-//    else util.List.of
+  //    else List.of
 //    this.promptsChangeConsumers = if (promptsChangeConsumers != null) promptsChangeConsumers
-//    else util.List.of
+  //    else List.of
 //    this.loggingConsumers = if (loggingConsumers != null) loggingConsumers
-//    else util.List.of
+  //    else List.of
 //    final private var clientCapabilities: McpSchema.ClientCapabilities = null
-//    final private var roots: util.Map[String, McpSchema.Root] = null
-//    final private var toolsChangeConsumers: util.List[Consumer[util.List[McpSchema.Tool]]] = null
-//    final private var resourcesChangeConsumers: util.List[Consumer[util.List[McpSchema.Resource]]] = null
-//    final private var promptsChangeConsumers: util.List[Consumer[util.List[McpSchema.Prompt]]] = null
-//    final private var loggingConsumers: util.List[Consumer[McpSchema.LoggingMessageNotification]] = null
+  //    final private var roots: mutable.map[String, McpSchema.Root] = null
+  //    final private var toolsChangeConsumers: List[Consumer[List[McpSchema.Tool]]] = null
+  //    final private var resourcesChangeConsumers: List[Consumer[List[McpSchema.Resource]]] = null
+  //    final private var promptsChangeConsumers: List[Consumer[List[McpSchema.Prompt]]] = null
+  //    final private var loggingConsumers: List[Consumer[McpSchema.LoggingMessageNotification]] = null
  // }
 }

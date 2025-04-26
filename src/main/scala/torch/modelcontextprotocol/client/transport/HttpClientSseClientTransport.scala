@@ -1,17 +1,17 @@
 /*
  * Copyright 2024 - 2024 the original author or authors.
  */
-package io.modelcontextprotocol.client.transport
+package torch.modelcontextprotocol.client.transport
 
 import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.modelcontextprotocol.client.transport.FlowSseClient.SseEvent
-import io.modelcontextprotocol.spec.McpSchema.JSONRPCMessage
-import io.modelcontextprotocol.spec.{ClientMcpTransport, McpError, McpSchema}
-import io.modelcontextprotocol.util.Assert
+import FlowSseClient.SseEvent
+import torch.modelcontextprotocol.spec.McpSchema.JSONRPCMessage
 import org.slf4j.{Logger, LoggerFactory}
 import reactor.core.publisher.Mono
+import torch.modelcontextprotocol.spec.{ClientMcpTransport, McpError, McpSchema, McpTransport}
+import torch.modelcontextprotocol.util.Assert
 
 import java.io.IOException
 import java.net.URI
@@ -23,7 +23,7 @@ import java.util.function.Function
 
 /**
  * Server-Sent Events (SSE) implementation of the
- * {@link io.modelcontextprotocol.spec.McpTransport} that follows the MCP HTTP with SSE
+ * {@link McpTransport} that follows the MCP HTTP with SSE
  * transport specification, using Java's HttpClient.
  *
  * <p>

@@ -1,4 +1,4 @@
 @main
 def main(): Unit =
-  println("Hello SCALA MCP !")
+  println("Hello SCALA Storch MCP !")
 

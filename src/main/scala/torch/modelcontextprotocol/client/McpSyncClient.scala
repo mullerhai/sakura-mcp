@@ -1,12 +1,12 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.client
+package torch.modelcontextprotocol.client
 
-import io.modelcontextprotocol.spec.McpSchema.{ClientCapabilities, GetPromptRequest, GetPromptResult, ListPromptsResult}
-import io.modelcontextprotocol.spec.{ClientMcpTransport, McpSchema}
-import io.modelcontextprotocol.util.Assert
+import torch.modelcontextprotocol.spec.McpSchema.{ClientCapabilities, GetPromptRequest, GetPromptResult, ListPromptsResult}
 import org.slf4j.{Logger, LoggerFactory}
+import torch.modelcontextprotocol.spec.{ClientMcpTransport, McpSchema}
+import torch.modelcontextprotocol.util.Assert
 
 import java.time.Duration
 

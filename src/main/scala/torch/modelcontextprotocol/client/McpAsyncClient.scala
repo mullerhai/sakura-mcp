@@ -1,23 +1,26 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.client
+package torch.modelcontextprotocol.client
 
 import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
+import torch.modelcontextprotocol.spec.{DefaultMcpSession, McpError, McpSchema, McpTransport}
 
 import java.time.Duration
 import java.util
 import java.util.concurrent.ConcurrentHashMap
-import java.util.function.Function
+//import java.util.function.Function
+import scala.collection.concurrent.TrieMap
+import scala.collection.mutable.ListBuffer
 
 //type.TypeReference
-import io.modelcontextprotocol.spec.*
-import io.modelcontextprotocol.spec.DefaultMcpSession.{NotificationHandler, RequestHandler}
-import io.modelcontextprotocol.spec.McpSchema.*
-import io.modelcontextprotocol.util.{Assert, Utils}
-import org.slf4j.{Logger, LoggerFactory}
+import torch.modelcontextprotocol.spec.*
+import torch.modelcontextprotocol.spec.DefaultMcpSession.{NotificationHandler, RequestHandler}
+import torch.modelcontextprotocol.spec.McpSchema.*
+import org.slf4j.LoggerFactory
 import reactor.core.publisher.{Flux, Mono}
+import torch.modelcontextprotocol.util.{Assert, Utils}
 
 import scala.jdk.CollectionConverters.*
 
@@ -98,19 +101,9 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    * Server implementation information.
    */
   private var serverInfo: McpSchema.Implementation = null
-  /**
-   * Roots define the boundaries of where servers can operate within the filesystem,
-   * allowing them to understand which directories and files they have access to.
-   * Servers can request the list of roots from supporting clients and receive
-   * notifications when that list changes.
-   */
-  final private var roots: ConcurrentHashMap[String, McpSchema.Root] = null
-  val notificationHandlers = new ConcurrentHashMap[String, DefaultMcpSession.NotificationHandler]
+  val notificationHandlers = new TrieMap[String, DefaultMcpSession.NotificationHandler]
   // Tools Change Notification
-  val toolsChangeConsumersFinal = new util.ArrayList[Function[util.List[McpSchema.Tool], Mono[Void]]]
-  this.clientInfo = features.clientInfo
-  this.clientCapabilities = features.clientCapabilities
-  this.roots = new ConcurrentHashMap[String, McpSchema.Root](features.roots)
+  val toolsChangeConsumersFinal = new ListBuffer[Function[List[McpSchema.Tool], Mono[Void]]]
 /**
  * Create a new McpAsyncClient with the given transport and session request-response
  * timeout.
@@ -121,7 +114,12 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
  */ 
 
   // Request Handlers
-  val requestHandlers = new ConcurrentHashMap[String, DefaultMcpSession.RequestHandler[_]]
+val requestHandlers = new ConcurrentHashMap[String, DefaultMcpSession.RequestHandler[?]]
+  this.clientInfo = features.clientInfo
+  this.clientCapabilities = features.clientCapabilities
+  this.roots = new TrieMap[String, McpSchema.Root]()
+  this.roots.addAll(features.roots)
+  val tccf: List[McpSchema.Tool] => Mono[Void] = (notification: List[McpSchema.Tool]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Tools changed: {}", notification))
   // Roots List Request Handler
   if (this.clientCapabilities.roots != null) requestHandlers.put(McpSchema.METHOD_ROOTS_LIST, rootsListRequestHandler)
   // Sampling Handler
@@ -131,31 +129,37 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
     requestHandlers.put(McpSchema.METHOD_SAMPLING_CREATE_MESSAGE, samplingCreateMessageHandler)
   }
   // Notification Handlers
-
-  toolsChangeConsumersFinal.add((notification: util.List[McpSchema.Tool]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Tools changed: {}", notification)))
+  val asyncNotificationHandler: NotificationHandler = asyncToolsChangeNotificationHandler(toolsChangeConsumersFinal.toList)
+  toolsChangeConsumersFinal.append(tccf)
   if (!Utils.isEmpty(features.toolsChangeConsumers)) toolsChangeConsumersFinal.addAll(features.toolsChangeConsumers)
-  val asyncNotificationHandler: NotificationHandler = asyncToolsChangeNotificationHandler(toolsChangeConsumersFinal)
-  notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_TOOLS_LIST_CHANGED,asyncNotificationHandler)
   // Resources Change Notification
-  val resourcesChangeConsumersFinal = new util.ArrayList[Function[util.List[McpSchema.Resource], Mono[Void]]]
-  resourcesChangeConsumersFinal.add((notification: util.List[McpSchema.Resource]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Resources changed: {}", notification)))
+  val resourcesChangeConsumersFinal = new ListBuffer[Function[List[McpSchema.Resource], Mono[Void]]]
+  notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_TOOLS_LIST_CHANGED,asyncNotificationHandler)
+  val rccf: List[McpSchema.Resource] => Mono[Void] = (notification: List[McpSchema.Resource]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Resources changed: {}", notification))
+  val kkk: NotificationHandler = asyncResourcesChangeNotificationHandler(resourcesChangeConsumersFinal.toList)
+  resourcesChangeConsumersFinal.append(rccf)
   if (!Utils.isEmpty(features.resourcesChangeConsumers)) resourcesChangeConsumersFinal.addAll(features.resourcesChangeConsumers)
-  val kkk: NotificationHandler = asyncResourcesChangeNotificationHandler(resourcesChangeConsumersFinal)
-  notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_RESOURCES_LIST_CHANGED,kkk )
   // Prompts Change Notification
-  val promptsChangeConsumersFinal = new util.ArrayList[Function[util.List[McpSchema.Prompt], Mono[Void]]]
-  promptsChangeConsumersFinal.add((notification: util.List[McpSchema.Prompt]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Prompts changed: {}", notification)))
+  val promptsChangeConsumersFinal = new ListBuffer[Function[List[McpSchema.Prompt], Mono[Void]]]
+  notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_RESOURCES_LIST_CHANGED,kkk )
+  val pccf: List[McpSchema.Prompt] => Mono[Void] = (notification: List[McpSchema.Prompt]) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Prompts changed: {}", notification))
+  val jjj: NotificationHandler = asyncPromptsChangeNotificationHandler(promptsChangeConsumersFinal.toList)
+  promptsChangeConsumersFinal.append(pccf)
   if (!Utils.isEmpty(features.promptsChangeConsumers)) promptsChangeConsumersFinal.addAll(features.promptsChangeConsumers)
-  val jjj: NotificationHandler = asyncPromptsChangeNotificationHandler(promptsChangeConsumersFinal)
-  notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_PROMPTS_LIST_CHANGED,jjj )
   // Utility Logging Notification
-  val loggingConsumersFinal = new util.ArrayList[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
-  loggingConsumersFinal.add((notification: McpSchema.LoggingMessageNotification) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Logging: {}", notification)))
+  val loggingConsumersFinal = new ListBuffer[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]
+  notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_PROMPTS_LIST_CHANGED,jjj )
+  val lcf: McpSchema.LoggingMessageNotification => Mono[Void] = (notification: McpSchema.LoggingMessageNotification) => Mono.fromRunnable(() => McpAsyncClient.logger.debug("Logging: {}", notification))
+  val lll: NotificationHandler = asyncLoggingNotificationHandler(loggingConsumersFinal.toList)
+  loggingConsumersFinal.append(lcf)
   if (!Utils.isEmpty(features.loggingConsumers)) loggingConsumersFinal.addAll(features.loggingConsumers)
-  val lll: NotificationHandler = asyncLoggingNotificationHandler(loggingConsumersFinal)
+  /**
+   * Supported protocol versions.
+   */
+  var protocolVersions = List(McpSchema.LATEST_PROTOCOL_VERSION)
   // asyncLoggingNotificationHandler(loggingConsumersFinal)
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_MESSAGE,lll)
-  this.mcpSession = new DefaultMcpSession(requestTimeout, transport, requestHandlers, notificationHandlers)
+  this.mcpSession = new DefaultMcpSession(requestTimeout, transport, requestHandlers, notificationHandlers.asJava)
   /**
    * The MCP session implementation that manages bidirectional JSON-RPC communication
    * between clients and servers.
@@ -171,9 +175,12 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    */
   var samplingHandler: Function[McpSchema.CreateMessageRequest, Mono[McpSchema.CreateMessageResult]] = null
   /**
-   * Supported protocol versions.
+   * Roots define the boundaries of where servers can operate within the filesystem,
+   * allowing them to understand which directories and files they have access to.
+   * Servers can request the list of roots from supporting clients and receive
+   * notifications when that list changes.
    */
-  var protocolVersions = util.List.of(McpSchema.LATEST_PROTOCOL_VERSION)
+  final private var roots: TrieMap[String, McpSchema.Root] = null
 
   /**
    * The initialization phase MUST be the first interaction between client and server.
@@ -208,7 +215,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   // Lifecycle
   // --------------------------
   def initialize: Mono[McpSchema.InitializeResult] = {
-    val latestVersion = this.protocolVersions.get(this.protocolVersions.size - 1)
+    val latestVersion = this.protocolVersions(this.protocolVersions.size - 1)
     val initializeRequest  = new McpSchema.InitializeRequest(// @formatter:off
     latestVersion, this.clientCapabilities, this.clientInfo) // @formatter:on
     val result = this.mcpSession.sendRequest(McpSchema.METHOD_INITIALIZE, initializeRequest, new TypeReference[McpSchema.InitializeResult]() {})
@@ -292,7 +299,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   def addRoot(root: McpSchema.Root): Mono[Void] = {
     if (root == null) return Mono.error(McpError("Root must not be null"))
     if (this.clientCapabilities.roots == null) return Mono.error(McpError("Client must be configured with roots capabilities"))
-    if (this.roots.containsKey(root.uri)) return Mono.error(McpError("Root with uri '" + root.uri + "' already exists"))
+    if (this.roots.contains(root.uri)) return Mono.error(McpError("Root with uri '" + root.uri + "' already exists"))
     this.roots.put(root.uri, root)
     McpAsyncClient.logger.debug("Added root: {}", root)
     if (this.clientCapabilities.roots.listChanged) return this.rootsListChangedNotification
@@ -327,7 +334,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
 
   def rootsListRequestHandler:RequestHandler[McpSchema.ListRootsResult] = (params: AnyRef) => {
     @SuppressWarnings(Array("unused")) val request = transport.unmarshalFrom(params, new TypeReference[McpSchema.PaginatedRequest]() {})
-    val roots = this.roots.values.stream.toList
+    val roots = this.roots.values.toList
     Mono.just(McpSchema.ListRootsResult(roots))
   }
 
@@ -394,10 +401,10 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    *         list to all registered consumers 3. Handling any errors that occur during this
    *         process
    */
-  def asyncToolsChangeNotificationHandler(toolsChangeConsumers: util.List[Function[util.List[McpSchema.Tool], Mono[Void]]]): NotificationHandler = {
+  def asyncToolsChangeNotificationHandler(toolsChangeConsumers: List[Function[List[McpSchema.Tool], Mono[Void]]]): NotificationHandler = {
     // TODO: params are not used yet
     (params: AnyRef) =>
-      listTools.flatMap((listToolsResult: McpSchema.ListToolsResult) => Flux.fromIterable(toolsChangeConsumers).flatMap((consumer: Function[util.List[McpSchema.Tool], Mono[Void]]) => consumer.apply(listToolsResult.tools)).onErrorResume((error: Throwable) => {
+      listTools.flatMap((listToolsResult: McpSchema.ListToolsResult) => Flux.fromIterable(toolsChangeConsumers.asJava).flatMap((consumer: Function[List[McpSchema.Tool], Mono[Void]]) => consumer.apply(listToolsResult.tools)).onErrorResume((error: Throwable) => {
         McpAsyncClient.logger.error("Error handling tools list change notification", error)
         Mono.empty
       }).`then`)
@@ -489,9 +496,9 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    */
   def unsubscribeResource(unsubscribeRequest: McpSchema.UnsubscribeRequest): Mono[Void] = this.mcpSession.sendRequest(McpSchema.METHOD_RESOURCES_UNSUBSCRIBE, unsubscribeRequest, McpAsyncClient.VOID_TYPE_REFERENCE)
 
-  def asyncResourcesChangeNotificationHandler(resourcesChangeConsumers: util.List[Function[util.List[McpSchema.Resource], Mono[Void]]]): NotificationHandler =
+  def asyncResourcesChangeNotificationHandler(resourcesChangeConsumers: List[Function[List[McpSchema.Resource], Mono[Void]]]): NotificationHandler =
     (params: AnyRef) => listResources.flatMap((listResourcesResult: McpSchema.ListResourcesResult) =>
-      Flux.fromIterable(resourcesChangeConsumers).flatMap((consumer: Function[util.List[McpSchema.Resource], Mono[Void]]) =>
+      Flux.fromIterable(resourcesChangeConsumers.asJava).flatMap((consumer: Function[List[McpSchema.Resource], Mono[Void]]) =>
         consumer.apply(listResourcesResult.resources)).onErrorResume((error: Throwable) => {
         McpAsyncClient.logger.error("Error handling resources list change notification", error)
         Mono.empty}).`then`)
@@ -519,12 +526,12 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    */
   def getPrompt(getPromptRequest: McpSchema.GetPromptRequest): Mono[McpSchema.GetPromptResult] = this.mcpSession.sendRequest(McpSchema.METHOD_PROMPT_GET, getPromptRequest, McpAsyncClient.GET_PROMPT_RESULT_TYPE_REF)
 
-  def asyncPromptsChangeNotificationHandler(promptsChangeConsumers: util.List[Function[util.List[McpSchema.Prompt], Mono[Void]]]): NotificationHandler =
+  def asyncPromptsChangeNotificationHandler(promptsChangeConsumers: List[Function[List[McpSchema.Prompt], Mono[Void]]]): NotificationHandler =
     (params: AnyRef) => 
       listPrompts
-        .flatMap((listPromptsResult: McpSchema.ListPromptsResult) => 
-          Flux.fromIterable(promptsChangeConsumers).
-            flatMap((consumer: Function[util.List[McpSchema.Prompt], Mono[Void]]) => 
+        .flatMap((listPromptsResult: McpSchema.ListPromptsResult) =>
+          Flux.fromIterable(promptsChangeConsumers.asJava).
+            flatMap((consumer: Function[List[McpSchema.Prompt], Mono[Void]]) =>
             consumer.apply(listPromptsResult.prompts)).onErrorResume((error: Throwable) => {
             McpAsyncClient.logger.error("Error handling prompts list change notification", error)
             Mono.empty
@@ -542,9 +549,9 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   // --------------------------
   // Logging
   // --------------------------
-  def asyncLoggingNotificationHandler(loggingConsumers: util.List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]): NotificationHandler = (params: AnyRef) => {
+  def asyncLoggingNotificationHandler(loggingConsumers: List[Function[McpSchema.LoggingMessageNotification, Mono[Void]]]): NotificationHandler = (params: AnyRef) => {
     val loggingMessageNotification = transport.unmarshalFrom(params, new TypeReference[McpSchema.LoggingMessageNotification]() {})
-    Flux.fromIterable(loggingConsumers).flatMap((consumer: Function[McpSchema.LoggingMessageNotification, Mono[Void]]) => consumer.apply(loggingMessageNotification)).`then`
+    Flux.fromIterable(loggingConsumers.asJava).flatMap((consumer: Function[McpSchema.LoggingMessageNotification, Mono[Void]]) => consumer.apply(loggingMessageNotification)).`then`
   }
 
   /**
@@ -555,7 +562,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
   def setLoggingLevel(loggingLevel: McpSchema.LoggingLevel): Mono[Void] = {
     Assert.notNull(loggingLevel, "Logging level must not be null")
     val levelName = this.transport.unmarshalFrom(loggingLevel, new TypeReference[String]() {})
-    val params :util.Map[String,AnyRef]= util.Map.of("level", levelName)
+    val params: Map[String, AnyRef] = Map("level" -> levelName)
     this.mcpSession.sendNotification(McpSchema.METHOD_LOGGING_SET_LEVEL, params)
   }
 
@@ -565,7 +572,7 @@ class McpAsyncClient (private val transport: McpTransport, requestTimeout: Durat
    *
    * @param protocolVersions the Client supported protocol versions.
    */
-  def setProtocolVersions(protocolVersions: util.List[String]): Unit = {
+  def setProtocolVersions(protocolVersions: List[String]): Unit = {
     this.protocolVersions = protocolVersions
   }
 }

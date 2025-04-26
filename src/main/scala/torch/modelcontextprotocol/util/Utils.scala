@@ -1,11 +1,9 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.util
+package torch.modelcontextprotocol.util
 
 import reactor.util.annotation.Nullable
-
-import java.util
 
 /**
  * Miscellaneous utility methods.
@@ -25,7 +23,7 @@ object Utils {
    *         greater than 0, and it does not contain whitespace only
    * @see Character#isWhitespace
    */
-  def hasText(@Nullable str: String): Boolean = str != null && !(str.isBlank)
+  def hasText(@Nullable str: String): Boolean = str != null && !(str.isEmpty)
 
   /**
    * Return {@code true} if the supplied Collection is {@code null} or empty. Otherwise,
@@ -34,7 +32,7 @@ object Utils {
    * @param collection the Collection to check
    * @return whether the given Collection is empty
    */
-  def isEmpty(@Nullable collection: util.Collection[_]): Boolean = collection == null || collection.isEmpty
+  def isEmpty(@Nullable collection: List[?]): Boolean = collection == null || collection.isEmpty
 
   /**
    * Return {@code true} if the supplied Map is {@code null} or empty. Otherwise, return
@@ -43,5 +41,5 @@ object Utils {
    * @param map the Map to check
    * @return whether the given Map is empty
    */
-  def isEmpty(@Nullable map: util.Map[_, _]): Boolean = map == null || map.isEmpty
+  def isEmpty(@Nullable map: Map[?, ?]): Boolean = map == null || map.isEmpty
 }

@@ -1,26 +1,29 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.server
+package torch.modelcontextprotocol.server
 
 import com.fasterxml.jackson.core
 import com.fasterxml.jackson.core.`type`.TypeReference
-import io.modelcontextprotocol.spec.DefaultMcpSession.RequestHandler
+import torch.modelcontextprotocol.spec.DefaultMcpSession.RequestHandler
 
 import java.time.Duration
 import java.util
-import java.util.Optional
 import java.util.concurrent.{ConcurrentHashMap, CopyOnWriteArrayList}
 import java.util.function.Function
+import scala.collection.concurrent.TrieMap
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters.*
 import scala.jdk.FunctionConverters.*
 //type.TypeReference
 
-import io.modelcontextprotocol.spec.DefaultMcpSession.NotificationHandler
-import io.modelcontextprotocol.spec.McpSchema.*
-import io.modelcontextprotocol.spec.{DefaultMcpSession, McpError, McpSchema, ServerMcpTransport}
-import io.modelcontextprotocol.util.Utils
-import org.slf4j.{Logger, LoggerFactory}
+import torch.modelcontextprotocol.spec.DefaultMcpSession.NotificationHandler
+import torch.modelcontextprotocol.spec.McpSchema.*
+import org.slf4j.LoggerFactory
 import reactor.core.publisher.{Flux, Mono}
+import torch.modelcontextprotocol.spec.{DefaultMcpSession, McpError, McpSchema, ServerMcpTransport}
+import torch.modelcontextprotocol.util.Utils
 
 /**
  * The Model Context Protocol (MCP) server implementation that provides asynchronous
@@ -83,13 +86,10 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
    */
   final val tools = new CopyOnWriteArrayList[McpServerFeatures.AsyncToolRegistration]
   final val resourceTemplates = new CopyOnWriteArrayList[McpSchema.ResourceTemplate]
-  final val resources = new ConcurrentHashMap[String, McpServerFeatures.AsyncResourceRegistration]
-  final val prompts = new ConcurrentHashMap[String, McpServerFeatures.AsyncPromptRegistration]
+  final val resources = new TrieMap[String, McpServerFeatures.AsyncResourceRegistration]
+  final val prompts = new TrieMap[String, McpServerFeatures.AsyncPromptRegistration]
   var minLoggingLevel = LoggingLevel.DEBUG
-  /**
-   * Supported protocol versions.
-   */
-  private var protocolVersions = util.List.of(McpSchema.LATEST_PROTOCOL_VERSION)
+  val requestHandlers = new ConcurrentHashMap[String, DefaultMcpSession.RequestHandler[?]]
 
   /**
    * Retrieves the list of all roots provided by the client.
@@ -178,11 +178,11 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   //{
   this.serverInfo = features.serverInfo
   this.serverCapabilities = features.serverCapabilities
-  this.tools.addAll(features.tools)
-  this.resources.putAll(features.resources)
-  this.resourceTemplates.addAll(features.resourceTemplates)
-  this.prompts.putAll(features.prompts)
-  val requestHandlers = new ConcurrentHashMap[String, DefaultMcpSession.RequestHandler[_]]
+  this.tools.addAll(features.tools.asJava)
+  this.resourceTemplates.addAll(features.resourceTemplates.asJava)
+  this.resources.addAll(features.resources)
+  this.prompts.addAll(features.prompts)
+  var rootsChangeConsumers: List[Function[List[McpSchema.Root], Mono[Void]]] = features.rootsChangeConsumers
   // Initialize request handlers for standard MCP methods
   requestHandlers.put(McpSchema.METHOD_INITIALIZE, asyncInitializeRequestHandler)
   // Ping MUST respond with an empty data, but not NULL response.
@@ -207,15 +207,18 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   if (this.serverCapabilities.logging != null) requestHandlers.put(McpSchema.METHOD_LOGGING_SET_LEVEL, setLoggerRequestHandler)
   val notificationHandlers = new ConcurrentHashMap[String, DefaultMcpSession.NotificationHandler]
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_INITIALIZED, (params: AnyRef) => Mono.empty)
-  var rootsChangeConsumers: util.List[Function[util.List[McpSchema.Root], Mono[Void]]] = features.rootsChangeConsumers
+  /**
+   * Supported protocol versions.
+   */
+  private var protocolVersions = List(McpSchema.LATEST_PROTOCOL_VERSION)
   notificationHandlers.put(McpSchema.METHOD_NOTIFICATION_ROOTS_LIST_CHANGED, asyncRootsListChangedNotificationHandler(rootsChangeConsumers))
   this.mcpSession = new DefaultMcpSession(Duration.ofSeconds(10), transport, requestHandlers, notificationHandlers)
 
-  def rootIsEmpty: util.List[Root] => Mono[Void] = (roots: util.List[McpSchema.Root]) => Mono.fromRunnable(() => McpAsyncServer.logger.warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots))
+  def rootIsEmpty: List[Root] => Mono[Void] = (roots: List[McpSchema.Root]) => Mono.fromRunnable(() => McpAsyncServer.logger.warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots))
 
 
-  if (Utils.isEmpty(rootsChangeConsumers)) then rootsChangeConsumers = util.List.of(rootIsEmpty.asJavaFunction)
-  //      (roots: util.List[McpSchema.Root]) => Mono.fromRunnable(() => McpAsyncServer.logger.warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots))
+  if (Utils.isEmpty(rootsChangeConsumers)) then rootsChangeConsumers = List(rootIsEmpty.asJavaFunction)
+  //      (roots: List[McpSchema.Root]) => Mono.fromRunnable(() => McpAsyncServer.logger.warn("Roots list changed notification, but no consumers provided. Roots list changed: {}", roots))
   //    )
 
   /**
@@ -262,8 +265,9 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
       val registration = this.prompts.get(promptRequest.name)
       val error = Mono.error(McpError("Prompt not found: " + promptRequest.name))
       //      if (registration == null) //todo  handle error
-      //        return error
-      registration.promptHandler.apply(promptRequest)
+      //              return error
+      if registration.isDefined then registration.get.promptHandler.apply(promptRequest) else
+        Mono.error(McpError("Prompt not found: " + promptRequest.name))
     }
 
   def notifyPromptsListChanged: Mono[Void] = this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_PROMPTS_LIST_CHANGED, null)
@@ -274,15 +278,14 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
       // McpSchema.PaginatedRequest request = transport.unmarshalFrom(params,
       // new TypeReference<McpSchema.PaginatedRequest>() {
       // });
-      import scala.jdk.CollectionConverters.*
       def promptRegToPrompt(reg: McpServerFeatures.AsyncPromptRegistration): McpSchema.Prompt = {
         reg.prompt
       }
 
-      val promptList: util.List[McpSchema.Prompt] = this.prompts.values.stream.map(reg => promptRegToPrompt(reg)).toList
+      val promptList: List[McpSchema.Prompt] = this.prompts.values.map(reg => promptRegToPrompt(reg)).toList
 
       //      this.prompts.values.asScala.map( ( ele: McpServerFeatures.SyncPromptRegistration) => McpServerFeatures.AsyncPromptRegistration.fromSync(ele))
-      //      val promptList:util.List[McpSchema.Prompt] = this.prompts.values.stream.map(McpServerFeatures.AsyncPromptRegistration.prompt).toList
+      //      val promptList:List[McpSchema.Prompt] = this.prompts.values.stream.map(McpServerFeatures.AsyncPromptRegistration.prompt).toList
       Mono.just(McpSchema.ListPromptsResult(promptList, null))
     }  
   // ---------------------------------------
@@ -295,7 +298,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
     McpAsyncServer.logger.info("Client initialize request - Protocol: {}, Capabilities: {}, Info: {}", initializeRequest.protocolVersion, initializeRequest.capabilities, initializeRequest.clientInfo)
     // The server MUST respond with the highest protocol version it supports if
     // it does not support the requested (e.g. Client) version.
-    var serverProtocolVersion = this.protocolVersions.get(this.protocolVersions.size - 1)
+    var serverProtocolVersion = this.protocolVersions(this.protocolVersions.size - 1)
     if (this.protocolVersions.contains(initializeRequest.protocolVersion)) {
       // If the server supports the requested protocol version, it MUST respond
       // with the same version.
@@ -305,9 +308,8 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
     Mono.just(McpSchema.InitializeResult(serverProtocolVersion, this.serverCapabilities, this.serverInfo, null))
   }
 
- 
 
-  def asyncRootsListChangedNotificationHandler(rootsChangeConsumers: util.List[Function[util.List[McpSchema.Root], Mono[Void]]]):NotificationHandler = (params: AnyRef) => listRoots.flatMap((listRootsResult: McpSchema.ListRootsResult) => Flux.fromIterable(rootsChangeConsumers).flatMap((consumer: Function[util.List[McpSchema.Root], Mono[Void]]) => consumer.apply(listRootsResult.roots)).onErrorResume((error: Throwable) => {
+  def asyncRootsListChangedNotificationHandler(rootsChangeConsumers: List[Function[List[McpSchema.Root], Mono[Void]]]): NotificationHandler = (params: AnyRef) => listRoots.flatMap((listRootsResult: McpSchema.ListRootsResult) => Flux.fromIterable(rootsChangeConsumers.asJava).flatMap((consumer: Function[List[McpSchema.Root], Mono[Void]]) => consumer.apply(listRootsResult.roots)).onErrorResume((error: Throwable) => {
     McpAsyncServer.logger.error("Error handling roots list change notification", error)
     Mono.empty
   }).`then`)
@@ -346,8 +348,9 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   def notifyToolsListChanged: Mono[Void] = this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_TOOLS_LIST_CHANGED, null)
 
   def toolsListRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ListToolsResult]= (params: AnyRef) => {
-    val tools: util.List[McpSchema.Tool] = this.tools.stream.map(reg => reg.tool).toList // McpServerFeatures.AsyncToolRegistration.tool
-    Mono.just(McpSchema.ListToolsResult(tools, null))
+    val toolz: ListBuffer[McpSchema.Tool] = new ListBuffer[McpSchema.Tool]()
+    this.tools.stream.forEach(reg => toolz.append(reg.tool)) //.toList // McpServerFeatures.AsyncToolRegistration.tool
+    Mono.just(McpSchema.ListToolsResult(toolz.toList, null))
   }
 
   def toolsCallRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.CallToolResult] = 
@@ -411,13 +414,13 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   def notifyResourcesListChanged: Mono[Void] = this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_RESOURCES_LIST_CHANGED, null)
 
   def resourcesListRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ListResourcesResult]= (params: AnyRef) => {
-    val resourceList = this.resources.values.stream.map(reg => reg.resource).toList
+    val resourceList = this.resources.values.map(reg => reg.resource).toList
     //    val resourceList = this.resources.values.stream.map((re :McpServerFeatures.SyncResourceRegistration)=>
     //      McpServerFeatures.AsyncResourceRegistration.fromSync(re).resource).toList
     Mono.just(new McpSchema.ListResourcesResult(resourceList, null))
   }
 
-  def resourceTemplateListRequestHandler:DefaultMcpSession.RequestHandler[McpSchema.ListResourceTemplatesResult] = (params: AnyRef) => Mono.just(new McpSchema.ListResourceTemplatesResult(this.resourceTemplates, null))
+  def resourceTemplateListRequestHandler: DefaultMcpSession.RequestHandler[McpSchema.ListResourceTemplatesResult] = (params: AnyRef) => Mono.just(new McpSchema.ListResourceTemplatesResult(this.resourceTemplates.asScala.toList, null))
 
   def resourcesReadRequestHandler: DefaultMcpSession.RequestHandler[McpSchema.ReadResourceResult] =
     (params: AnyRef) => {
@@ -426,7 +429,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
       val registration = this.resources.get(resourceUri)
       //      registration.readHandler.apply(resourceRequest)
       if (registration != null) //todo handle error
-        registration.readHandler.apply(resourceRequest)
+        registration.get.readHandler.apply(resourceRequest)
       else
         Mono.error(McpError("Resource not found: " + resourceUri))
     }
@@ -434,9 +437,9 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
 
   def loggingNotification(loggingMessageNotification: McpSchema.LoggingMessageNotification): Mono[Void] = {
     if (loggingMessageNotification == null) return Mono.error(McpError("Logging message must not be null"))
-    val params = this.transport.unmarshalFrom(loggingMessageNotification, new TypeReference[util.Map[String, AnyRef]]() {})
+    val params = this.transport.unmarshalFrom(loggingMessageNotification, new TypeReference[mutable.Map[String, AnyRef]]() {})
     if (loggingMessageNotification.level.level < minLoggingLevel.level) return Mono.empty
-    this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_MESSAGE, params)
+    this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_MESSAGE, params.toMap)
   }
 
   def createMessage(createMessageRequest: McpSchema.CreateMessageRequest): Mono[McpSchema.CreateMessageResult] = {
@@ -451,7 +454,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
       Mono.empty
   }
 
-  def setProtocolVersions(protocolVersions: util.List[String]): Unit = {
+  def setProtocolVersions(protocolVersions: List[String]): Unit = {
     this.protocolVersions = protocolVersions
   }
   /**
@@ -539,7 +542,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
   // ---------------------------------------
 //  def loggingNotification(loggingMessageNotification: McpSchema.LoggingMessageNotification): Mono[Void] = {
 //    if (loggingMessageNotification == null) return Mono.error(new McpError("Logging message must not be null"))
-//    val params = this.transport.unmarshalFrom(loggingMessageNotification, new TypeReference[util.Map[String, AnyRef]]() {})
+  //    val params = this.transport.unmarshalFrom(loggingMessageNotification, new TypeReference[mutable.map[String, AnyRef]]() {})
 //    if (loggingMessageNotification.level.level < minLoggingLevel.level) return Mono.empty
 //    this.mcpSession.sendNotification(McpSchema.METHOD_NOTIFICATION_MESSAGE, params)
 //  }
@@ -587,7 +590,7 @@ class McpAsyncServer (transport: ServerMcpTransport, features: McpServerFeatures
    *
    * @param protocolVersions the Client supported protocol versions.
    */
-//  def setProtocolVersions(protocolVersions: util.List[String]): Unit = {
+  //  def setProtocolVersions(protocolVersions: List[String]): Unit = {
 //    this.protocolVersions = protocolVersions
 //  }
 }

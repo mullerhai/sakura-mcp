@@ -1,15 +1,15 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.server
+package torch.modelcontextprotocol.server
 
-import io.modelcontextprotocol.spec.McpSchema
-import io.modelcontextprotocol.util.{Assert, Utils}
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
+import torch.modelcontextprotocol.spec.McpSchema
 
-import java.util
 import java.util.function.{Consumer, Function}
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -20,12 +20,12 @@ import scala.jdk.CollectionConverters.*
 object McpServerFeatures {
 
   case class AsyncToolRegistration(tool: McpSchema.Tool,
-                                   call: Function[util.Map[String, AnyRef], Mono[McpSchema.CallToolResult]]) {
+                                   call: Function[Map[String, AnyRef], Mono[McpSchema.CallToolResult]]) {
     def fromSync(tool: McpServerFeatures.SyncToolRegistration): McpServerFeatures.AsyncToolRegistration = {
       // FIXME: This is temporary, proper validation should be implemented
       if (tool == null) return null
       new McpServerFeatures.AsyncToolRegistration(tool.tool,
-        (map: util.Map[String, AnyRef])
+        (map: Map[String, AnyRef])
         => Mono.fromCallable(() => tool.call.apply(map)).subscribeOn(Schedulers.boundedElastic))
     }
   }
@@ -49,6 +49,58 @@ object McpServerFeatures {
         Mono.fromCallable(() => prompt.promptHandler.apply(req)).subscribeOn(Schedulers.boundedElastic))
     }
   }
+
+  final case class Async (serverInfo: McpSchema.Implementation, 
+                                                    serverCapabilities: McpSchema.ServerCapabilities,
+                          tools: List[McpServerFeatures.AsyncToolRegistration],
+                          resources: mutable.Map[String, McpServerFeatures.AsyncResourceRegistration],
+                          resourceTemplates: List[McpSchema.ResourceTemplate],
+                          prompts: mutable.Map[String, McpServerFeatures.AsyncPromptRegistration],
+                          rootsChangeConsumers: List[Function[List[McpSchema.Root], Mono[Void]]])
+
+  final case  class Sync(serverInfo: McpSchema.Implementation, 
+                                                   serverCapabilities: McpSchema.ServerCapabilities,
+                         tools: List[McpServerFeatures.SyncToolRegistration],
+                         resources: mutable.Map[String, McpServerFeatures.SyncResourceRegistration],
+                         resourceTemplates: List[McpSchema.ResourceTemplate],
+                         prompts: mutable.Map[String, McpServerFeatures.SyncPromptRegistration],
+                         rootsChangeConsumers: List[Consumer[List[McpSchema.Root]]])
+
+  /**
+   * Registration of a tool with its synchronous handler function. Tools are the primary
+   * way for MCP servers to expose functionality to AI models. Each tool represents a
+   * specific capability, such as:
+   * <ul>
+   * <li>Performing calculations
+   * <li>Accessing external APIs
+   * <li>Querying databases
+   * <li>Manipulating files
+   * <li>Executing system commands
+   * </ul>
+   *
+   * <p>
+   * Example tool registration: <pre>{@code
+   * new McpServerFeatures.SyncToolRegistration(
+   * new Tool(
+   * "calculator",
+   * "Performs mathematical calculations",
+   * new JsonSchemaObject()
+   * .required("expression")
+   * .property("expression", JsonSchemaType.STRING)
+   * ),
+   * args -> {
+   * String expr = (String) args.get("expression");
+   * return new CallToolResult("Result: " + evaluate(expr));
+   * }
+   * )
+   * }</pre>
+   *
+   * @param tool The tool definition including name, description, and parameter schema
+   * @param call The function that implements the tool's logic, receiving arguments and
+   * returning results
+   */
+  final case class SyncToolRegistration(tool: McpSchema.Tool, call: Function[Map[String, AnyRef], McpSchema.CallToolResult])
+
   /**
    * Asynchronous server features specification.
    *
@@ -72,70 +124,35 @@ object McpServerFeatures {
      *         user.
      */
     def fromSync(syncSpec: McpServerFeatures.Sync) = {
-        val tools = new util.ArrayList[McpServerFeatures.AsyncToolRegistration]
+      val tools = new ListBuffer[McpServerFeatures.AsyncToolRegistration]
 //        import scala.collection.JavaConversions.*
-        for (tool <- syncSpec.tools.asScala) {
-          tools.add(AsyncToolRegistration.fromSync(tool))
+      for (tool <- syncSpec.tools) {
+        tools.append(AsyncToolRegistration.fromSync(tool))
         }
-        val resources = new util.HashMap[String, McpServerFeatures.AsyncResourceRegistration]
-        syncSpec.resources.forEach((key: String, resource: McpServerFeatures.SyncResourceRegistration) => {
+      val resources = new mutable.HashMap[String, McpServerFeatures.AsyncResourceRegistration]
+      syncSpec.resources.foreach((key: String, resource: McpServerFeatures.SyncResourceRegistration) => {
           resources.put(key, AsyncResourceRegistration.fromSync(resource))
         })
-        val prompts = new util.HashMap[String, McpServerFeatures.AsyncPromptRegistration]
-        syncSpec.prompts.forEach((key: String, prompt: McpServerFeatures.SyncPromptRegistration) => {
+      val prompts = new mutable.HashMap[String, McpServerFeatures.AsyncPromptRegistration]
+      syncSpec.prompts.foreach((key: String, prompt: McpServerFeatures.SyncPromptRegistration) => {
           prompts.put(key, AsyncPromptRegistration.fromSync(prompt))
         })
-        val rootChangeConsumers = new util.ArrayList[Function[util.List[McpSchema.Root], Mono[Void]]]
+      val rootChangeConsumers = new ListBuffer[Function[List[McpSchema.Root], Mono[Void]]]
 //        import scala.collection.JavaConversions.*
-        for (rootChangeConsumer <- syncSpec.rootsChangeConsumers.asScala) {
-          rootChangeConsumers.add((list: util.List[McpSchema.Root]) => Mono.fromRunnable[Void](() => rootChangeConsumer.accept(list)).subscribeOn(Schedulers.boundedElastic))
+      for (rootChangeConsumer <- syncSpec.rootsChangeConsumers) {
+        rootChangeConsumers.append((list: List[McpSchema.Root]) => Mono.fromRunnable[Void](() => rootChangeConsumer.accept(list)).subscribeOn(Schedulers.boundedElastic))
         }
-        new McpServerFeatures.Async(syncSpec.serverInfo, syncSpec.serverCapabilities, tools, resources, syncSpec.resourceTemplates, prompts, rootChangeConsumers)
+      new McpServerFeatures.Async(syncSpec.serverInfo, syncSpec.serverCapabilities, tools.toList, resources, syncSpec.resourceTemplates, prompts, rootChangeConsumers.toList)
       }
   }
 
-
-
-
-  final case class Async (serverInfo: McpSchema.Implementation, 
-                                                    serverCapabilities: McpSchema.ServerCapabilities, 
-                                                    tools: util.List[McpServerFeatures.AsyncToolRegistration], 
-                                                    resources: util.Map[String, McpServerFeatures.AsyncResourceRegistration], 
-                                                    resourceTemplates: util.List[McpSchema.ResourceTemplate], 
-                                                    prompts: util.Map[String, McpServerFeatures.AsyncPromptRegistration],
-                                                    rootsChangeConsumers: util.List[Function[util.List[McpSchema.Root], Mono[Void]]])
-
- 
-  final case  class Sync(serverInfo: McpSchema.Implementation, 
-                                                   serverCapabilities: McpSchema.ServerCapabilities, 
-                                                   tools: util.List[McpServerFeatures.SyncToolRegistration], 
-                                                   resources: util.Map[String, McpServerFeatures.SyncResourceRegistration], 
-                                                   resourceTemplates: util.List[McpSchema.ResourceTemplate], 
-                                                   prompts: util.Map[String, McpServerFeatures.SyncPromptRegistration], 
-                                                   rootsChangeConsumers: util.List[Consumer[util.List[McpSchema.Root]]])
-
-
-  object AsyncToolRegistration {
-
-    val tools = new util.ArrayList[McpSchema.Tool]()
-    def fromSync(tool: McpServerFeatures.SyncToolRegistration): McpServerFeatures.AsyncToolRegistration = {
-      // FIXME: This is temporary, proper validation should be implemented
-      if (tool == null) return null
-      new McpServerFeatures.AsyncToolRegistration(tool.tool,
-        (map: util.Map[String, AnyRef])
-        => Mono.fromCallable(() => tool.call.apply(map)).subscribeOn(Schedulers.boundedElastic))
-    }
-
-
-  }
-
 //  final case class AsyncToolRegistration(tool: McpSchema.Tool, 
-//                                    call: Function[util.Map[String, AnyRef], Mono[McpSchema.CallToolResult]])  
+  //                                    call: Function[mutable.map[String, AnyRef], Mono[McpSchema.CallToolResult]])
   //{
 //    this.tool = tool
 //    this.call = call
 //    final private val tool: McpSchema.Tool = null
-//    final private val call: Function[util.Map[String, AnyRef], Mono[McpSchema.CallToolResult]] = null
+  //    final private val call: Function[mutable.map[String, AnyRef], Mono[McpSchema.CallToolResult]] = null
 //  }
 
   /**
@@ -181,6 +198,30 @@ object McpServerFeatures {
 //    final private val readHandler: Function[McpSchema.ReadResourceRequest, Mono[McpSchema.ReadResourceResult]] = null
 //  }
 
+  object AsyncToolRegistration {
+
+    val tools = new ListBuffer[McpSchema.Tool]()
+    def fromSync(tool: McpServerFeatures.SyncToolRegistration): McpServerFeatures.AsyncToolRegistration = {
+      // FIXME: This is temporary, proper validation should be implemented
+      if (tool == null) return null
+      new McpServerFeatures.AsyncToolRegistration(tool.tool,
+        (map: Map[String, AnyRef])
+        => Mono.fromCallable(() => tool.call.apply(map)).subscribeOn(Schedulers.boundedElastic))
+    }
+
+
+  }
+
+//  final case  class AsyncPromptRegistration(prompt: McpSchema.Prompt,
+//                                      promptHandler: Function[McpSchema.GetPromptRequest, Mono[McpSchema.GetPromptResult]]) 
+
+    //{
+//    this.prompt = prompt
+//    this.promptHandler = promptHandler
+//    final private val prompt: McpSchema.Prompt = null
+//    final private val promptHandler: Function[McpSchema.GetPromptRequest, Mono[McpSchema.GetPromptResult]] = null
+  //}
+
   /**
    * Registration of a prompt template with its asynchronous handler function. Prompts
    * provide structured templates for AI model interactions, supporting:
@@ -210,7 +251,7 @@ object McpServerFeatures {
    * formatted templates
    */
   object AsyncPromptRegistration {
-    //    val prompt:McpSchema.Prompt= null //new util.ArrayList[McpSchema.Prompt]()
+    //    val prompt:McpSchema.Prompt= null //new ListBuffer[McpSchema.Prompt]()
     def fromSync(prompt: McpServerFeatures.SyncPromptRegistration): McpServerFeatures.AsyncPromptRegistration = {
       // FIXME: This is temporary, proper validation should be implemented
       if (prompt == null) return null
@@ -218,56 +259,11 @@ object McpServerFeatures {
         Mono.fromCallable(() => prompt.promptHandler.apply(req)).subscribeOn(Schedulers.boundedElastic))
     }
   }
-
-//  final case  class AsyncPromptRegistration(prompt: McpSchema.Prompt,
-//                                      promptHandler: Function[McpSchema.GetPromptRequest, Mono[McpSchema.GetPromptResult]]) 
-
-    //{
-//    this.prompt = prompt
-//    this.promptHandler = promptHandler
-//    final private val prompt: McpSchema.Prompt = null
-//    final private val promptHandler: Function[McpSchema.GetPromptRequest, Mono[McpSchema.GetPromptResult]] = null
-  //}
-
-  /**
-   * Registration of a tool with its synchronous handler function. Tools are the primary
-   * way for MCP servers to expose functionality to AI models. Each tool represents a
-   * specific capability, such as:
-   * <ul>
-   * <li>Performing calculations
-   * <li>Accessing external APIs
-   * <li>Querying databases
-   * <li>Manipulating files
-   * <li>Executing system commands
-   * </ul>
-   *
-   * <p>
-   * Example tool registration: <pre>{@code
-   * new McpServerFeatures.SyncToolRegistration(
-   * new Tool(
-   * "calculator",
-   * "Performs mathematical calculations",
-   * new JsonSchemaObject()
-   * .required("expression")
-   * .property("expression", JsonSchemaType.STRING)
-   * ),
-   * args -> {
-   * String expr = (String) args.get("expression");
-   * return new CallToolResult("Result: " + evaluate(expr));
-   * }
-   * )
-   * }</pre>
-   *
-   * @param tool The tool definition including name, description, and parameter schema
-   * @param call The function that implements the tool's logic, receiving arguments and
-   * returning results
-   */
-  final case class SyncToolRegistration(tool: McpSchema.Tool, call: Function[util.Map[String, AnyRef], McpSchema.CallToolResult]) 
   //{
 //    this.tool = tool
 //    this.call = call
 //    final private val tool: McpSchema.Tool = null
-//    final private val call: Function[util.Map[String, AnyRef], McpSchema.CallToolResult] = null
+  //    final private val call: Function[mutable.map[String, AnyRef], McpSchema.CallToolResult] = null
 //  }
 
   /**

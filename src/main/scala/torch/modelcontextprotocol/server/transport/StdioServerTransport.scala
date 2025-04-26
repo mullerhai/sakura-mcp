@@ -1,7 +1,7 @@
 /*
  * Copyright 2024-2024 the original author or authors.
  */
-package io.modelcontextprotocol.server.transport
+package torch.modelcontextprotocol.server.transport
 
 import com.fasterxml.jackson.core.`type`.TypeReference
 import reactor.util.context.Context
@@ -16,12 +16,12 @@ import scala.util.control.Breaks.break
 //type.TypeReference
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import io.modelcontextprotocol.spec.McpSchema.JSONRPCMessage
-import io.modelcontextprotocol.spec.{McpSchema, ServerMcpTransport}
-import io.modelcontextprotocol.util.Assert
+import torch.modelcontextprotocol.spec.McpSchema.JSONRPCMessage
 import org.slf4j.{Logger, LoggerFactory}
 import reactor.core.publisher.{Flux, Mono, Sinks}
 import reactor.core.scheduler.{Scheduler, Schedulers}
+import torch.modelcontextprotocol.spec.{McpSchema, ServerMcpTransport}
+import torch.modelcontextprotocol.util.Assert
 
 /**
  * Implementation of the MCP Stdio transport for servers that communicates using standard
